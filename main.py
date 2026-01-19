@@ -1,5 +1,7 @@
 import os
 import json
+from json import JSONDecodeError
+
 import requests
 import traceback
 
@@ -7,6 +9,7 @@ from time import sleep
 from datetime import date
 from calendar import prmonth
 from dotenv import load_dotenv
+from pathlib import Path
 
 REPORT_FILE = "reports.json"
 
@@ -41,7 +44,7 @@ def get_technician_names() -> list:
     names_list = [name["FullName"] for name in data["value"]]
     return names_list
 
-def get_work_orders_by_range(start, end, customer_filter) -> list:
+def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list:
     work_order_dict_list = []
     if customer_filter is not None:
         customer_filter_string = (f" and (EntityCompanyName eq '{customer_filter}' "
@@ -113,7 +116,7 @@ def get_labor_items(work_order_num_list) -> list:
 def calulate_pplh(items: list, tech_names: dict) -> dict:
     pass
 
-def tally_labor_hours(items: list, tech_names: dict) -> dict:
+def tally_labor_hours(items: list, tech_names: list) -> dict:
     labor_dict = {name: 0 for name in field_tech_list}
     for job_item in items:
         try:
@@ -146,20 +149,51 @@ def get_date(date_type: str) -> str | None:
             print("Invalid entry! Try again!")
             continue
 
-def write_report(data: dict, report_file=REPORT_FILE) -> None:
+def get_report_type(types: dict) -> str:
+    while True:
+        for index, key in enumerate(types.keys()):
+            print(f"{index}. {key}")
+        try:
+            selected_index = int(input("Please enter a number for the report type you would like to make: "))
+            report_key = list(types.keys())[selected_index]
+            return types[report_key]
+        except ValueError:
+            print("Please enter a number!\n\n")
+        except IndexError:
+            print("Invalid index! Try again.\n\n")
+
+
+def write_report_to_file(new_data: dict, data_name: str, report_file=REPORT_FILE) -> None:
+    path = Path(report_file)
+    if path.exists():
+        try:
+            with open(report_file, "r") as f:
+                json_data = json.load(f)
+                json_data[data_name] = new_data
+        except JSONDecodeError:
+            json_data = {}
+    else:
+        json_data = {}
+    json_data[data_name] = new_data
     with open(report_file, "w") as f:
-        json.dump(data, f)
-    
+        json.dump(json_data, f, indent=4)
+
+def create_report_name(start: str, end: str, report_type: str) -> str:
+    return f"{start}:{end}::{report_type}"
+
 
 if __name__ == '__main__':
     start_date = get_date("start")
     end_date = get_date("end")
     field_tech_list = get_technician_names()
+    report_request_type = get_report_type(report_types)
 
-    work_orders = get_work_orders_by_range(start_date, end_date, LOST_TIME_CUSTOMER)
+    work_orders = get_work_orders_by_range(start_date, end_date, report_request_type)
 
     job_items = get_labor_items(work_orders)
-    labor_hours_dict = tally_labor_hours(job_items)
-    print(labor_hours_dict)
+    labor_hours_dict = tally_labor_hours(job_items, field_tech_list)
+
+    report_name = create_report_name(start_date, end_date, report_request_type)
+    write_report_to_file(labor_hours_dict, report_name)
 
 
