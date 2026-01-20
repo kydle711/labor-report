@@ -30,10 +30,13 @@ report_types = {
 API_KEY = os.getenv("MY_API_KEY")
 
 if not API_KEY:
-    raise RuntimeError("MY_API_KEY could not be found")
+    raise RuntimeError("API key could not be found")
 
 headers = {'Authorization': f'APIKey {API_KEY}'}
 payload = {}
+
+def clear_screen() -> None:
+    os.system("cls" if os.name == "nt" else "clear")
 
 def get_technician_names() -> list:
     params = {"skip": 0,
@@ -117,7 +120,7 @@ def calulate_pplh(items: list, tech_names: dict) -> dict:
     pass
 
 def tally_labor_hours(items: list, tech_names: list) -> dict:
-    labor_dict = {name: 0 for name in field_tech_list}
+    labor_dict = {name: 0 for name in tech_names}
     for job_item in items:
         try:
             if 'labor' in job_item["Item"]:
@@ -181,8 +184,7 @@ def write_report_to_file(new_data: dict, data_name: str, report_file=REPORT_FILE
 def create_report_name(start: str, end: str, report_type: str) -> str:
     return f"{start}:{end}::{report_type}"
 
-
-if __name__ == '__main__':
+def get_report() -> None:
     start_date = get_date("start")
     end_date = get_date("end")
     field_tech_list = get_technician_names()
@@ -195,5 +197,66 @@ if __name__ == '__main__':
 
     report_name = create_report_name(start_date, end_date, report_request_type)
     write_report_to_file(labor_hours_dict, report_name)
+
+def list_report(report_file=REPORT_FILE) -> None:
+    clear_screen()
+    print("Listing reports...")
+    with open(report_file, "r") as f:
+        data = json.load(f)
+    selection_list = [item for item in list(enumerate(data.keys()))]
+    print("Which report would you like to print?\n")
+    for item in selection_list:
+        print(item)
+    try:
+        report_selection = int(input("Enter a report number: "))
+    except ValueError:
+        clear_screen()
+        print("Invalid input!")
+        return
+    except IndexError:
+        clear_screen()
+        print("Invalid selection!")
+        return
+    clear_screen()
+    for item in selection_list:
+        if item[0] == report_selection:
+            print(data[item[1]])
+
+def delete_report():
+    pass
+
+def plot_data():
+    pass
+
+def quit_program() -> None:
+    quit()
+
+def main_menu() -> None:
+    menu_items = {0: "Get Report", 1: "List Report", 2: "Delete Report",
+                  3: "Plot Data", 4: "Quit Program"}
+    selection_functions = {0: get_report, 1: list_report, 2: delete_report,
+                           3: plot_data, 4: quit_program}
+    print("MENU OPTIONS:", flush=True)
+    for key, value in menu_items.items():
+        print(f"{key}. {value}")
+    try:
+        menu_selection = int(input("Please select an option: "))
+    except ValueError:
+        clear_screen()
+        print("Invalid input!")
+        return
+    except IndexError:
+        clear_screen()
+        print("Invalid selection!")
+        return
+    selection_functions[menu_selection]()
+
+
+
+if __name__ == '__main__':
+    print("Welcome to Labor Report Downloader\n")
+    while True:
+        main_menu()
+
 
 
