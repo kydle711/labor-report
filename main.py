@@ -198,32 +198,49 @@ def get_report() -> None:
     report_name = create_report_name(start_date, end_date, report_request_type)
     write_report_to_file(labor_hours_dict, report_name)
 
-def list_report(report_file=REPORT_FILE) -> None:
+def get_stored_data(report_file=REPORT_FILE) -> tuple[dict, list]:
     clear_screen()
-    print("Listing reports...")
+    print("Displaying reports...")
     with open(report_file, "r") as f:
         data = json.load(f)
-    selection_list = [item for item in list(enumerate(data.keys()))]
-    print("Which report would you like to print?\n")
-    for item in selection_list:
+    return data, [item for item in list(enumerate(data.keys()))]
+
+def get_user_selection(selection_menu: list) -> int | None:
+    for item in selection_menu:
         print(item)
     try:
         report_selection = int(input("Enter a report number: "))
     except ValueError:
         clear_screen()
         print("Invalid input!")
-        return
+        return None
     except IndexError:
         clear_screen()
         print("Invalid selection!")
-        return
+        return None
     clear_screen()
+    return report_selection
+
+
+def list_report() -> None:
+    data, selection_list = get_stored_data()
+    print("Which report would you like to print?\n")
+    selection = get_user_selection(selection_list)
     for item in selection_list:
-        if item[0] == report_selection:
+        if item[0] == selection:
             print(data[item[1]])
 
-def delete_report():
-    pass
+def delete_report(report_file=REPORT_FILE) -> None:
+    data, selection_list = get_stored_data()
+    print("Which report would you like to delete?\n")
+    selection = get_user_selection(selection_list)
+    for item in selection_list:
+        if item[0] == selection:
+            removed_report = data.pop(item[1])
+            print(f"Deleting the following report: {removed_report}")
+    with open(report_file, "w") as f:
+        json.dump(data, f, indent=4)
+
 
 def plot_data():
     pass
@@ -250,8 +267,6 @@ def main_menu() -> None:
         print("Invalid selection!")
         return
     selection_functions[menu_selection]()
-
-
 
 if __name__ == '__main__':
     print("Welcome to Labor Report Downloader\n")
