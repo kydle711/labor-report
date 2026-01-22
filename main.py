@@ -272,15 +272,22 @@ def delete_report(report_file=REPORT_FILE) -> None:
 
 
 def plot_data():
-    data, selection_list = get_stored_data()
-    print("Which report would you like to plot?\n")
-    selection = get_user_selection(selection_list)
-    for item in selection_list:
-        if item[0] == selection:
-            plot_report = data.pop(item[1])
-            print(f"Plotting report {plot_report}")
-
-    plot_report_data((plot_report))
+    plots_list = []
+    labels = []
+    while True:
+        data, selection_list = get_stored_data()
+        print("Which report would you like to plot?\n")
+        selection = get_user_selection(selection_list)
+        for item in selection_list:
+            if item[0] == selection:
+                labels.append(item[1])
+                plot_report = data.pop(item[1])
+                print(f"Adding to list: {plot_report}")
+                plots_list.append(plot_report)
+        if input("Do you want to add another report? (y/n): ") != "y":
+            break
+    print("\nPlotting data...\n\n")
+    plot_report_data(*plots_list, data_labels=labels)
 
 
 def quit_program() -> None:
