@@ -11,6 +11,8 @@ from calendar import prmonth
 from dotenv import load_dotenv
 from pathlib import Path
 
+from plots import plot_report_data
+
 REPORT_FILE = "reports.json"
 
 URL = "https://rest.method.me/api/v1"
@@ -22,9 +24,8 @@ report_types = {
     "Rental": "Accurate Rental",
     "Service Warranty": "Accurate Service Warranty",
     "Vehicle Maintenance": "Accurate Vehicle Maintenance",
-    "All" : None
+    "All": None,
 }
-
 
 
 API_KEY = os.getenv("MY_API_KEY")
@@ -32,36 +33,45 @@ API_KEY = os.getenv("MY_API_KEY")
 if not API_KEY:
     raise RuntimeError("API key could not be found")
 
-headers = {'Authorization': f'APIKey {API_KEY}'}
+headers = {"Authorization": f"APIKey {API_KEY}"}
 payload = {}
+
 
 def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
+
 def get_technician_names() -> list:
-    params = {"skip": 0,
-              "top": 100,
-              "select": "FullName"}
-    response = requests.get(f"{URL}/tables/FieldTechnicians", params=params, headers=headers)
+    params = {"skip": 0, "top": 100, "select": "FullName"}
+    response = requests.get(
+        f"{URL}/tables/FieldTechnicians", params=params, headers=headers
+    )
     data = response.json()
     names_list = [name["FullName"] for name in data["value"]]
     return names_list
 
+
 def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list:
     work_order_dict_list = []
     if customer_filter is not None:
-        customer_filter_string = (f" and (EntityCompanyName eq '{customer_filter}' "
-                                  f"or ContactsName eq '{customer_filter}')")
+        customer_filter_string = (
+            f" and (EntityCompanyName eq '{customer_filter}' "
+            f"or ContactsName eq '{customer_filter}')"
+        )
     else:
         customer_filter_string = ""
-    params = {"skip": 0,
-              "top": 100,
-              "select": "RecordID",
-              "filter": f"ActualCompletedDate ge '{start}T00:00:00' "
-                        f"and ActualCompletedDate lt '{end}T00:00:00'{customer_filter_string}"}
+    params = {
+        "skip": 0,
+        "top": 100,
+        "select": "RecordID",
+        "filter": f"ActualCompletedDate ge '{start}T00:00:00' "
+        f"and ActualCompletedDate lt '{end}T00:00:00'{customer_filter_string}",
+    }
     try:
         while True:
-            response = requests.get(f"{URL}/tables/Activity", params=params, headers=headers)
+            response = requests.get(
+                f"{URL}/tables/Activity", params=params, headers=headers
+            )
             if response.status_code != 200:
                 print(response.status_code)
                 print(response.content)
@@ -71,7 +81,7 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
             work_order_dict_list.extend(data["value"])
             if data["count"] < 100:
                 break
-            params['skip'] += 100
+            params["skip"] += 100
     except Exception:
         print(traceback.format_exc())
     work_order_list = [item["RecordID"] for item in work_order_dict_list]
@@ -86,19 +96,23 @@ def get_labor_items(work_order_num_list) -> list:
     total = len(work_order_num_list)
     slice_size = 10
     # Break large wo list into bite sized chunks to pass as filter params
-    split_list = [filter_list[i: i+slice_size] for i in range(0, total, slice_size)]
+    split_list = [filter_list[i : i + slice_size] for i in range(0, total, slice_size)]
     param_list = []
     for item in split_list:
         param_list.append(" or ".join(item))
 
     for parameter in param_list:
-        params = {"skip": 0,
-                  "top": 100,
-                  "select": "Item, Qty",
-                  "filter": f"contains(Item,'labor') and {parameter}"}
+        params = {
+            "skip": 0,
+            "top": 100,
+            "select": "Item, Qty",
+            "filter": f"contains(Item,'labor') and {parameter}",
+        }
         try:
             while True:
-                response = requests.get(f"{URL}/tables/ActivityJobItems", params=params, headers=headers)
+                response = requests.get(
+                    f"{URL}/tables/ActivityJobItems", params=params, headers=headers
+                )
                 if response.status_code != 200:
                     print(response.status_code)
                     print(response.content)
@@ -108,7 +122,7 @@ def get_labor_items(work_order_num_list) -> list:
                     data_list.extend(data["value"])
                     if data["count"] < 100:
                         break
-                    params['skip'] += 100
+                    params["skip"] += 100
                 else:
                     data_list.extend(data)
                     break
@@ -116,15 +130,17 @@ def get_labor_items(work_order_num_list) -> list:
             print(traceback.format_exc())
     return data_list
 
+
 def calulate_pplh(items: list, tech_names: dict) -> dict:
     pass
+
 
 def tally_labor_hours(items: list, tech_names: list) -> dict:
     labor_dict = {name: 0 for name in tech_names}
     for job_item in items:
         try:
-            if 'labor' in job_item["Item"]:
-                tech_name_key = job_item["Item"].lstrip('labor:')
+            if "labor" in job_item["Item"]:
+                tech_name_key = job_item["Item"].lstrip("labor:")
                 if tech_name_key in tech_names:
                     labor_dict[tech_name_key] += job_item["Qty"]
         except Exception:
@@ -132,6 +148,7 @@ def tally_labor_hours(items: list, tech_names: list) -> dict:
             print(job_item)
             continue
     return labor_dict
+
 
 def get_date(date_type: str) -> str | None:
     while True:
@@ -152,12 +169,17 @@ def get_date(date_type: str) -> str | None:
             print("Invalid entry! Try again!")
             continue
 
+
 def get_report_type(types: dict) -> str:
     while True:
         for index, key in enumerate(types.keys()):
             print(f"{index}. {key}")
         try:
-            selected_index = int(input("Please enter a number for the report type you would like to make: "))
+            selected_index = int(
+                input(
+                    "Please enter a number for the report type you would like to make: "
+                )
+            )
             report_key = list(types.keys())[selected_index]
             return types[report_key]
         except ValueError:
@@ -166,7 +188,9 @@ def get_report_type(types: dict) -> str:
             print("Invalid index! Try again.\n\n")
 
 
-def write_report_to_file(new_data: dict, data_name: str, report_file=REPORT_FILE) -> None:
+def write_report_to_file(
+    new_data: dict, data_name: str, report_file=REPORT_FILE
+) -> None:
     path = Path(report_file)
     if path.exists():
         try:
@@ -181,8 +205,10 @@ def write_report_to_file(new_data: dict, data_name: str, report_file=REPORT_FILE
     with open(report_file, "w") as f:
         json.dump(json_data, f, indent=4)
 
+
 def create_report_name(start: str, end: str, report_type: str) -> str:
     return f"{start}:{end}::{report_type}"
+
 
 def get_report() -> None:
     start_date = get_date("start")
@@ -198,12 +224,14 @@ def get_report() -> None:
     report_name = create_report_name(start_date, end_date, report_request_type)
     write_report_to_file(labor_hours_dict, report_name)
 
+
 def get_stored_data(report_file=REPORT_FILE) -> tuple[dict, list]:
     clear_screen()
     print("Displaying reports...")
     with open(report_file, "r") as f:
         data = json.load(f)
     return data, [item for item in list(enumerate(data.keys()))]
+
 
 def get_user_selection(selection_menu: list) -> int | None:
     for item in selection_menu:
@@ -230,6 +258,7 @@ def list_report() -> None:
         if item[0] == selection:
             print(data[item[1]])
 
+
 def delete_report(report_file=REPORT_FILE) -> None:
     data, selection_list = get_stored_data()
     print("Which report would you like to delete?\n")
@@ -243,16 +272,36 @@ def delete_report(report_file=REPORT_FILE) -> None:
 
 
 def plot_data():
-    pass
+    data, selection_list = get_stored_data()
+    print("Which report would you like to plot?\n")
+    selection = get_user_selection(selection_list)
+    for item in selection_list:
+        if item[0] == selection:
+            plot_report = data.pop(item[1])
+            print(f"Plotting report {plot_report}")
+
+    plot_report_data((plot_report))
+
 
 def quit_program() -> None:
     quit()
 
+
 def main_menu() -> None:
-    menu_items = {0: "Get Report", 1: "List Report", 2: "Delete Report",
-                  3: "Plot Data", 4: "Quit Program"}
-    selection_functions = {0: get_report, 1: list_report, 2: delete_report,
-                           3: plot_data, 4: quit_program}
+    menu_items = {
+        0: "Get Report",
+        1: "List Report",
+        2: "Delete Report",
+        3: "Plot Data",
+        4: "Quit Program",
+    }
+    selection_functions = {
+        0: get_report,
+        1: list_report,
+        2: delete_report,
+        3: plot_data,
+        4: quit_program,
+    }
     print("MENU OPTIONS:", flush=True)
     for key, value in menu_items.items():
         print(f"{key}. {value}")
@@ -268,10 +317,8 @@ def main_menu() -> None:
         return
     selection_functions[menu_selection]()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     print("Welcome to Labor Report Downloader\n")
     while True:
         main_menu()
-
-
-
