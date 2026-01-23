@@ -24,7 +24,7 @@ report_types = {
     "Rental": "Accurate Rental",
     "Service Warranty": "Accurate Service Warranty",
     "Vehicle Maintenance": "Accurate Vehicle Maintenance",
-    "All": None,
+    "All Internals": None,
 }
 
 
@@ -88,19 +88,23 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
     return work_order_list
 
 
-def get_labor_items(work_order_num_list) -> list:
-    data_list = []
+def parameterize_wo_list(wo_list: list) -> list:
+    """Break large work order list into bite-sized chunks to pass as filter params"""
     filter_list = []
-    for num in work_order_num_list:
+    for num in wo_list:
         filter_list.append(f"ActivityNo eq '{num}'")
-    total = len(work_order_num_list)
+    total = len(wo_list)
     slice_size = 10
-    # Break large wo list into bite sized chunks to pass as filter params
     split_list = [filter_list[i : i + slice_size] for i in range(0, total, slice_size)]
     param_list = []
     for item in split_list:
         param_list.append(" or ".join(item))
+    return param_list
 
+
+def get_labor_items(work_order_num_list) -> list:
+    data_list = []
+    param_list = parameterize_wo_list(work_order_num_list)
     for parameter in param_list:
         params = {
             "skip": 0,
@@ -131,7 +135,40 @@ def get_labor_items(work_order_num_list) -> list:
     return data_list
 
 
-def calulate_pplh(items: list, tech_names: dict) -> dict:
+def get_all_job_items(work_order_num_list) -> list:
+    data_list = []
+    param_list = parameterize_wo_list(work_order_num_list)
+    for parameter in param_list:
+        params = {
+            "skip": 0,
+            "top": 100,
+            "select": "ActivityNo, Item, Qty, Amount",
+            "filter": parameter,
+        }
+        try:
+            while True:
+                response = requests.get(
+                    f"{URL}/tables/ActivityJobItems", params=params, headers=headers
+                )
+                if response.status_code != 200:
+                    print(response.status_code)
+                    print(response.content)
+                    continue
+                data = response.json()
+                if "value" in data:
+                    data_list.extend(data["value"])
+                    if data["count"] < 100:
+                        break
+                    params["skip"] += 100
+                else:
+                    data_list.extend(data)
+                    break
+        except Exception:
+            print(traceback.format_exc())
+    return data_list
+
+
+def calulate_pplh(wo_nums: list, job_items: list, tech_names: list) -> dict:
     pass
 
 
@@ -146,7 +183,6 @@ def tally_labor_hours(items: list, tech_names: list) -> dict:
         except Exception:
             print(traceback.format_exc())
             print(job_item)
-            continue
     return labor_dict
 
 

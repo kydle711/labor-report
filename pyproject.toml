@@ -1,0 +1,11 @@
+[project]
+name = "labor-report"
+version = "0.1.0"
+description = "CLI tool for generating labor performance reports through my company's CRM API"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "dotenv>=0.9.9",
+    "matplotlib>=3.10.8",
+    "requests>=2.32.5",
+]
