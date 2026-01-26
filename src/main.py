@@ -13,11 +13,11 @@ from pathlib import Path
 
 from plots import plot_report_data
 
-REPORT_FILE_PATH = os.path.join("..", "data", "reports.json")
+REPORT_FILE_PATH = os.path.join("data", "reports.json")
 
 URL = "https://rest.method.me/api/v1"
 
-load_dotenv(dotenv_path=os.path.join("..", ".env"))
+load_dotenv(dotenv_path=".env")
 
 report_types = {
     "Lost Time": "Accurate - Lost Time",
@@ -362,6 +362,8 @@ def main_menu() -> None:
 
 
 if __name__ == "__main__":
+    if not os.path.exists("data/"):
+        os.makedirs("data/")
     print("Welcome to Labor Report Downloader\n")
     while True:
         main_menu()
