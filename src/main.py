@@ -13,11 +13,11 @@ from pathlib import Path
 
 from plots import plot_report_data
 
-REPORT_FILE = "reports.json"
+REPORT_FILE_PATH = os.path.join("..", "data", "reports.json")
 
 URL = "https://rest.method.me/api/v1"
 
-load_dotenv(dotenv_path=".env")
+load_dotenv(dotenv_path=os.path.join("..", ".env"))
 
 report_types = {
     "Lost Time": "Accurate - Lost Time",
@@ -225,7 +225,7 @@ def get_report_type(types: dict) -> str:
 
 
 def write_report_to_file(
-    new_data: dict, data_name: str, report_file=REPORT_FILE
+    new_data: dict, data_name: str, report_file=REPORT_FILE_PATH
 ) -> None:
     path = Path(report_file)
     if path.exists():
@@ -261,7 +261,7 @@ def get_report() -> None:
     write_report_to_file(labor_hours_dict, report_name)
 
 
-def get_stored_data(report_file=REPORT_FILE) -> tuple[dict, list]:
+def get_stored_data(report_file=REPORT_FILE_PATH) -> tuple[dict, list]:
     clear_screen()
     print("Displaying reports...")
     with open(report_file, "r") as f:
@@ -295,7 +295,7 @@ def list_report() -> None:
             print(data[item[1]])
 
 
-def delete_report(report_file=REPORT_FILE) -> None:
+def delete_report(report_file=REPORT_FILE_PATH) -> None:
     data, selection_list = get_stored_data()
     print("Which report would you like to delete?\n")
     selection = get_user_selection(selection_list)
