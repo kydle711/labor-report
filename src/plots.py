@@ -4,17 +4,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def _calculate_mean(data_set: dict, ignore_zero=True) -> float:
-    sum = 0
+def _calculate_mean(data_set: dict[str:float | int], ignore_zero=True) -> float:
+    data_sum = 0
     divisor = 0
     for value in data_set.values():
-        if value > 0:
-            sum += value
+        if ignore_zero and value > 0:
+            data_sum += value
+            divisor += 1
+        else:
+            data_sum += value
             divisor += 1
     if divisor == 0:
         return 0
     else:
-        return sum / divisor
+        return data_sum / divisor
 
 
 def calculate_stand_dev(data_set: dict, mean: float | None = None) -> float:
