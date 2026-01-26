@@ -7,11 +7,13 @@ import numpy as np
 def _calculate_mean(data_set: dict[str:float | int], ignore_zero=True) -> float:
     data_sum = 0
     divisor = 0
-    for value in data_set.values():
-        if ignore_zero and value > 0:
-            data_sum += value
-            divisor += 1
-        else:
+    if ignore_zero:
+        for value in data_set.values():
+            if value > 0:
+                data_sum += value
+                divisor += 1
+    else:
+        for value in data_set.values():
             data_sum += value
             divisor += 1
     if divisor == 0:
@@ -27,7 +29,7 @@ def calculate_stand_dev(data_set: dict, mean: float | None = None) -> float:
     for value in data_set.values():
         total += (value - +mean) ** 2
     average_of_total = total / len(data_set)
-    return math.sqrt(average_of_total)
+    return round(math.sqrt(average_of_total), 4)
 
 
 def plot_report_data(
