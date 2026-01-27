@@ -11,6 +11,11 @@ from calendar import prmonth
 from dotenv import load_dotenv
 from pathlib import Path
 
+from rich.progress import Progress
+from rich.console import Console
+from rich.table import Table
+from rich import print_json, print
+
 from plots import plot_report_data
 
 REPORT_FILE_PATH = os.path.join("data", "reports.json")
@@ -36,12 +41,11 @@ if not API_KEY:
 headers = {"Authorization": f"APIKey {API_KEY}"}
 payload = {}
 
-
-def clear_screen() -> None:
-    os.system("cls" if os.name == "nt" else "clear")
-
+console = Console()
 
 def get_technician_names() -> list:
+    with Progress() as progress:
+        tech_name_task = progress.add_task("Checking technician names...", total=None)
     params = {"skip": 0, "top": 100, "select": "FullName"}
     response = requests.get(
         f"{URL}/tables/FieldTechnicians", params=params, headers=headers
@@ -50,6 +54,27 @@ def get_technician_names() -> list:
     names_list = [name["FullName"] for name in data["value"]]
     return names_list
 
+
+def get_work_order_count(start: str, end: str, customer_filter: str) -> int | None:
+    if customer_filter is not None:
+        customer_filter_string = (
+            f" and (EntityCompanyName eq '{customer_filter}' "
+            f"or ContactsName eq '{customer_filter}')"
+        )
+    else:
+        customer_filter_string = ""
+
+    params = {
+        "apply": f"filter(ActualCompletedDate ge '{start}T00:00:00' and "
+                 f"ActualCompletedDate lt '{end}T00:00:00'{customer_filter_string})"
+                 f"/aggregate($count as TotalWorkOrders)"
+    }
+    response = requests.get(f"{URL}/tables/Activity", params=params, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        return int(data["value"][0]["TotalWorkOrders"])
+    else:
+        return None
 
 def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list:
     work_order_dict_list = []
@@ -67,23 +92,32 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
         "filter": f"ActualCompletedDate ge '{start}T00:00:00' "
         f"and ActualCompletedDate lt '{end}T00:00:00'{customer_filter_string}",
     }
-    try:
-        while True:
-            response = requests.get(
-                f"{URL}/tables/Activity", params=params, headers=headers
-            )
-            if response.status_code != 200:
-                print(response.status_code)
-                print(response.content)
-                sleep(20)
-                continue
-            data = response.json()
-            work_order_dict_list.extend(data["value"])
-            if data["count"] < 100:
-                break
-            params["skip"] += 100
-    except Exception:
-        print(traceback.format_exc())
+
+    total_work_orders = get_work_order_count(start, end, customer_filter)
+    if total_work_orders is not None:
+        print(f"[bold green]Total Work Orders found:[/bold green][bold yellow] {total_work_orders}[/bold yellow]")
+    with Progress() as progress:
+        task = progress.add_task("Getting work order numbers...", total=total_work_orders)
+        while not progress.finished:
+            while True:
+                progress.update(task, advance=100)
+                try:
+                    response = requests.get(
+                        f"{URL}/tables/Activity", params=params, headers=headers
+                    )
+                    if response.status_code != 200:
+                        print(response.status_code)
+                        print(response.content)
+                        sleep(20)
+                        continue
+                    data = response.json()
+                    work_order_dict_list.extend(data["value"])
+                    if data["count"] < 100:
+                        break
+                    params["skip"] += 100
+                except Exception:
+                    print(traceback.format_exc())
+
     work_order_list = [item["RecordID"] for item in work_order_dict_list]
     return work_order_list
 
@@ -176,11 +210,12 @@ def tally_labor_hours(items: list, tech_names: list) -> dict:
     labor_dict = {name: 0 for name in tech_names}
     for job_item in items:
         try:
-            if "labor" in job_item["Item"]:
-                tech_name_key = job_item["Item"].lstrip("labor:")
+            item_name = job_item["Item"]
+            if item_name is not None and "labor" in item_name:
+                tech_name_key = item_name.lstrip("labor:")
                 if tech_name_key in tech_names:
                     labor_dict[tech_name_key] += job_item["Qty"]
-        except Exception:
+        except TypeError:
             print(traceback.format_exc())
             print(job_item)
     return labor_dict
@@ -262,7 +297,6 @@ def get_report() -> None:
 
 
 def get_stored_data(report_file=REPORT_FILE_PATH) -> tuple[dict, list]:
-    clear_screen()
     print("Displaying reports...")
     with open(report_file, "r") as f:
         data = json.load(f)
@@ -270,19 +304,27 @@ def get_stored_data(report_file=REPORT_FILE_PATH) -> tuple[dict, list]:
 
 
 def get_user_selection(selection_menu: list) -> int | None:
+    table = Table(title="Stored Reports")
+    table.add_column("Index")
+    table.add_column("Start Date")
+    table.add_column("End Date")
+    table.add_column("Report Type")
+
     for item in selection_menu:
-        print(item)
+        index = str(item[0])
+        title = item[1]
+        date_range, report_type = title.split("::")
+        start_date, end_date = date_range.split(":")
+        table.add_row(index, start_date, end_date, report_type)
+    console.print(table)
     try:
         report_selection = int(input("Enter a report number: "))
     except ValueError:
-        clear_screen()
         print("Invalid input!")
         return None
     except IndexError:
-        clear_screen()
         print("Invalid selection!")
         return None
-    clear_screen()
     return report_selection
 
 
@@ -292,7 +334,7 @@ def list_report() -> None:
     selection = get_user_selection(selection_list)
     for item in selection_list:
         if item[0] == selection:
-            print(data[item[1]])
+            print_json(data=data[item[1]])
 
 
 def delete_report(report_file=REPORT_FILE_PATH) -> None:
@@ -345,17 +387,18 @@ def main_menu() -> None:
         3: plot_data,
         4: quit_program,
     }
-    print("MENU OPTIONS:", flush=True)
+    table = Table(title="MAIN MENU")
+    table.add_column("Index")
+    table.add_column("Options")
     for key, value in menu_items.items():
-        print(f"{key}. {value}")
+        table.add_row(str(key), value)
+    console.print(table)
     try:
         menu_selection = int(input("Please select an option: "))
     except ValueError:
-        clear_screen()
         print("Invalid input!")
         return
     except IndexError:
-        clear_screen()
         print("Invalid selection!")
         return
     selection_functions[menu_selection]()

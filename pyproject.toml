@@ -9,4 +9,5 @@ dependencies = [
     "matplotlib>=3.10.8",
     "pytest>=9.0.2",
     "requests>=2.32.5",
+    "rich>=14.3.1",
 ]
