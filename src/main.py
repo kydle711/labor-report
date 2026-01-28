@@ -24,19 +24,21 @@ URL = "https://rest.method.me/api/v1"
 
 load_dotenv(dotenv_path=".env")
 
+API_KEY = os.getenv("MY_API_KEY")
+
+if not API_KEY:
+    raise RuntimeError("API key could not be found")
+
 report_types = {
     "Lost Time": "Accurate - Lost Time",
     "Rental": "Accurate Rental",
     "Service Warranty": "Accurate Service Warranty",
     "Vehicle Maintenance": "Accurate Vehicle Maintenance",
     "All Internals": None,
+    "Brake cleaner sales": "Brake cleaner",
+    "Service Calls": "Service calls",
+    "Parts per labor hour": "PPLH"
 }
-
-
-API_KEY = os.getenv("MY_API_KEY")
-
-if not API_KEY:
-    raise RuntimeError("API key could not be found")
 
 headers = {"Authorization": f"APIKey {API_KEY}"}
 payload = {}
@@ -46,21 +48,26 @@ console = Console()
 def get_technician_names() -> list:
     with Progress() as progress:
         tech_name_task = progress.add_task("Checking technician names...", total=None)
-    params = {"skip": 0, "top": 100, "select": "FullName"}
-    response = requests.get(
-        f"{URL}/tables/FieldTechnicians", params=params, headers=headers
-    )
-    data = response.json()
-    names_list = [name["FullName"] for name in data["value"]]
+        params = {"skip": 0, "top": 100, "select": "FullName"}
+
+        response = requests.get(
+            f"{URL}/tables/FieldTechnicians", params=params, headers=headers
+        )
+
+        data = response.json()
+        names_list = [name["FullName"] for name in data["value"]]
+        progress.update(tech_name_task, advance=1)
+
     return names_list
 
 
-def get_work_order_count(start: str, end: str, customer_filter: str) -> int | None:
-    if customer_filter is not None:
+def get_work_order_count(start: str, end: str, customer_filter: str | None) -> int | None:
+    if customer_filter:
         customer_filter_string = (
             f" and (EntityCompanyName eq '{customer_filter}' "
             f"or ContactsName eq '{customer_filter}')"
         )
+
     else:
         customer_filter_string = ""
 
@@ -69,12 +76,19 @@ def get_work_order_count(start: str, end: str, customer_filter: str) -> int | No
                  f"ActualCompletedDate lt '{end}T00:00:00'{customer_filter_string})"
                  f"/aggregate($count as TotalWorkOrders)"
     }
+
     response = requests.get(f"{URL}/tables/Activity", params=params, headers=headers)
+
     if response.status_code == 200:
         data = response.json()
-        return int(data["value"][0]["TotalWorkOrders"])
+        total = int(data["value"][0]["TotalWorkOrders"])
+        print(f"[bold green]Total Work Orders found:[/bold green][bold yellow] {total}[/bold yellow]")
+
+        return total
+
     else:
         return None
+
 
 def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list:
     work_order_dict_list = []
@@ -83,8 +97,11 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
             f" and (EntityCompanyName eq '{customer_filter}' "
             f"or ContactsName eq '{customer_filter}')"
         )
+
     else:
         customer_filter_string = ""
+
+
     params = {
         "skip": 0,
         "top": 100,
@@ -94,111 +111,148 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
     }
 
     total_work_orders = get_work_order_count(start, end, customer_filter)
-    if total_work_orders is not None:
-        print(f"[bold green]Total Work Orders found:[/bold green][bold yellow] {total_work_orders}[/bold yellow]")
+
     with Progress() as progress:
         task = progress.add_task("Getting work order numbers...", total=total_work_orders)
-        while not progress.finished:
-            while True:
-                progress.update(task, advance=100)
-                try:
-                    response = requests.get(
-                        f"{URL}/tables/Activity", params=params, headers=headers
-                    )
-                    if response.status_code != 200:
-                        print(response.status_code)
-                        print(response.content)
-                        sleep(20)
-                        continue
-                    data = response.json()
-                    work_order_dict_list.extend(data["value"])
-                    if data["count"] < 100:
-                        break
-                    params["skip"] += 100
-                except Exception:
-                    print(traceback.format_exc())
+
+        while True:
+            progress.update(task, advance=100)
+            try:
+                response = requests.get(
+                    f"{URL}/tables/Activity", params=params, headers=headers
+                )
+
+                if response.status_code != 200:
+                    print(response.status_code)
+                    print(response.content)
+                    continue
+
+                data = response.json()
+                work_order_dict_list.extend(data["value"])
+
+                if data["count"] < 100:
+                    break
+
+                params["skip"] += 100
+
+            except Exception:
+                print(traceback.format_exc())
 
     work_order_list = [item["RecordID"] for item in work_order_dict_list]
+
     return work_order_list
 
 
 def parameterize_wo_list(wo_list: list) -> list:
     """Break large work order list into bite-sized chunks to pass as filter params"""
     filter_list = []
+
     for num in wo_list:
         filter_list.append(f"ActivityNo eq '{num}'")
+
     total = len(wo_list)
     slice_size = 10
     split_list = [filter_list[i : i + slice_size] for i in range(0, total, slice_size)]
     param_list = []
+
     for item in split_list:
         param_list.append(" or ".join(item))
+
     return param_list
 
 
 def get_labor_items(work_order_num_list) -> list:
     data_list = []
     param_list = parameterize_wo_list(work_order_num_list)
-    for parameter in param_list:
-        params = {
-            "skip": 0,
-            "top": 100,
-            "select": "Item, Qty",
-            "filter": f"contains(Item,'labor') and {parameter}",
-        }
-        try:
-            while True:
-                response = requests.get(
-                    f"{URL}/tables/ActivityJobItems", params=params, headers=headers
-                )
-                if response.status_code != 200:
-                    print(response.status_code)
-                    print(response.content)
-                    continue
-                data = response.json()
-                if "value" in data:
-                    data_list.extend(data["value"])
-                    if data["count"] < 100:
+
+    with Progress() as progress:
+        task = progress.add_task("Getting labor items...", total=len(param_list))
+
+        for parameter in param_list:
+            progress.update(task, advance=1)
+
+            params = {
+                "skip": 0,
+                "top": 100,
+                "select": "Item, Qty",
+                "filter": f"contains(Item,'labor') and {parameter}",
+            }
+
+            try:
+                while True:
+                    response = requests.get(
+                        f"{URL}/tables/ActivityJobItems", params=params, headers=headers
+                    )
+
+                    if response.status_code != 200:
+                        print(response.status_code)
+                        print(response.content)
+                        continue
+
+                    data = response.json()
+
+                    if "value" in data:
+                        data_list.extend(data["value"])
+
+                        if data["count"] < 100:
+                            break
+
+                        params["skip"] += 100
+
+                    else:
+                        data_list.extend(data)
                         break
-                    params["skip"] += 100
-                else:
-                    data_list.extend(data)
-                    break
-        except Exception:
-            print(traceback.format_exc())
+
+            except Exception:
+                print(traceback.format_exc())
+
     return data_list
 
 
-def get_all_job_items(work_order_num_list) -> list:
+def get_all_job_items(work_order_num_list, item_filter: str | None=None) -> list:
     data_list = []
     param_list = parameterize_wo_list(work_order_num_list)
+
     for parameter in param_list:
+        if item_filter:
+            item_filter = f" and contains(Item,'{item_filter}')"
+            parameter = parameter + item_filter
+
         params = {
             "skip": 0,
             "top": 100,
             "select": "ActivityNo, Item, Qty, Amount",
             "filter": parameter,
         }
+
         try:
             while True:
                 response = requests.get(
                     f"{URL}/tables/ActivityJobItems", params=params, headers=headers
                 )
+
                 if response.status_code != 200:
                     print(response.status_code)
                     print(response.content)
                     continue
+
                 data = response.json()
+
                 if "value" in data:
                     data_list.extend(data["value"])
+
                     if data["count"] < 100:
                         break
+
                     params["skip"] += 100
+
                 else:
                     data_list.extend(data)
                     break
+
         except Exception:
             print(traceback.format_exc())
+
     return data_list
 
 
@@ -206,18 +260,27 @@ def calulate_pplh(wo_nums: list, job_items: list, tech_names: list) -> dict:
     pass
 
 
-def tally_labor_hours(items: list, tech_names: list) -> dict:
+def tally_job_tems(items: list, tech_names: list) -> dict:
     labor_dict = {name: 0 for name in tech_names}
-    for job_item in items:
-        try:
-            item_name = job_item["Item"]
-            if item_name is not None and "labor" in item_name:
-                tech_name_key = item_name.lstrip("labor:")
-                if tech_name_key in tech_names:
-                    labor_dict[tech_name_key] += job_item["Qty"]
-        except TypeError:
-            print(traceback.format_exc())
-            print(job_item)
+    with Progress() as progress:
+        task = progress.add_task("Counting hours...", total=len(items))
+
+        for job_item in items:
+            progress.update(task, advance=1)
+
+            try:
+                item_name = job_item["Item"]
+
+                if item_name and "labor" in item_name:
+                    tech_name_key = item_name.lstrip("labor:")
+
+                    if tech_name_key in tech_names:
+                        labor_dict[tech_name_key] += job_item["Qty"]
+
+            except TypeError:
+                print(traceback.format_exc())
+                print(job_item)
+
     return labor_dict
 
 
@@ -225,54 +288,71 @@ def get_date(date_type: str) -> str | None:
     while True:
         year = input(f"Please enter the {date_type} year: ")
         month = input(f"Please enter the {date_type} month: ")
+
         try:
             year_int, month_int = int(year), int(month)
             prmonth(year_int, month_int)
             day = input(f"Please enter the {date_type} day: ")
+
         except ValueError:
-            print("Invalid entry! Try again!")
+            print("[red bold]Invalid entry! Try again![/]")
             continue
+
         try:
             day_int = int(day)
             date_input = date(year_int, month_int, day_int).isoformat()
+
             return date_input
+
         except ValueError:
-            print("Invalid entry! Try again!")
+            print("[red bold]Invalid entry! Try again![/]")
             continue
 
 
 def get_report_type(types: dict) -> str:
     while True:
+        table = Table(title="Report Types")
+        table.add_column("Index")
+        table.add_column("Type")
+
         for index, key in enumerate(types.keys()):
-            print(f"{index}. {key}")
+            table.add_row(str(index), key)
+
+        console.print(table)
+
         try:
-            selected_index = int(
-                input(
-                    "Please enter a number for the report type you would like to make: "
-                )
-            )
+            selected_index = int(input("Please select report number: "))
             report_key = list(types.keys())[selected_index]
+
             return types[report_key]
+
         except ValueError:
-            print("Please enter a number!\n\n")
+            print("[red bold]Please enter a number![/]\n\n")
+
         except IndexError:
-            print("Invalid index! Try again.\n\n")
+            print("[red bold]Invalid index! Try again.[/]\n\n")
 
 
 def write_report_to_file(
     new_data: dict, data_name: str, report_file=REPORT_FILE_PATH
 ) -> None:
+
     path = Path(report_file)
+
     if path.exists():
         try:
             with open(report_file, "r") as f:
                 json_data = json.load(f)
                 json_data[data_name] = new_data
+
         except JSONDecodeError:
             json_data = {}
+
     else:
         json_data = {}
+
     json_data[data_name] = new_data
+
     with open(report_file, "w") as f:
         json.dump(json_data, f, indent=4)
 
@@ -290,7 +370,7 @@ def get_report() -> None:
     work_orders = get_work_orders_by_range(start_date, end_date, report_request_type)
 
     job_items = get_labor_items(work_orders)
-    labor_hours_dict = tally_labor_hours(job_items, field_tech_list)
+    labor_hours_dict = tally_job_tems(job_items, field_tech_list)
 
     report_name = create_report_name(start_date, end_date, report_request_type)
     write_report_to_file(labor_hours_dict, report_name)
@@ -313,57 +393,85 @@ def get_user_selection(selection_menu: list) -> int | None:
     for item in selection_menu:
         index = str(item[0])
         title = item[1]
+
         date_range, report_type = title.split("::")
         start_date, end_date = date_range.split(":")
+
         table.add_row(index, start_date, end_date, report_type)
+
     console.print(table)
+
     try:
         report_selection = int(input("Enter a report number: "))
+
     except ValueError:
-        print("Invalid input!")
+        print("[bold red]Invalid input![/]\n")
         return None
+
     except IndexError:
-        print("Invalid selection!")
+        print("[bold red]Invalid selection![/]\n")
         return None
+
     return report_selection
 
 
 def list_report() -> None:
     data, selection_list = get_stored_data()
+
     print("Which report would you like to print?\n")
+
     selection = get_user_selection(selection_list)
+
     for item in selection_list:
         if item[0] == selection:
             print_json(data=data[item[1]])
 
+        else:
+            print("[red bold]Invalid selection![/]\n")
+
 
 def delete_report(report_file=REPORT_FILE_PATH) -> None:
     data, selection_list = get_stored_data()
+
     print("Which report would you like to delete?\n")
+
     selection = get_user_selection(selection_list)
+
     for item in selection_list:
         if item[0] == selection:
             removed_report = data.pop(item[1])
-            print(f"Deleting the following report: {removed_report}")
-    with open(report_file, "w") as f:
-        json.dump(data, f, indent=4)
+
+            print("[red bold]Deleting the following report: [/]")
+            print_json(data=removed_report)
+
+            with open(report_file, "w") as f:
+                json.dump(data, f, indent=4)
+
+        else:
+            print("[red bold]Invalid selection![/]\n")
 
 
-def plot_data():
+def plot_data() -> None:
     plots_list = []
     labels = []
+
     while True:
         data, selection_list = get_stored_data()
         print("Which report would you like to plot?\n")
         selection = get_user_selection(selection_list)
+
         for item in selection_list:
             if item[0] == selection:
                 labels.append(item[1])
                 plot_report = data.pop(item[1])
-                print(f"Adding to list: {plot_report}")
+
+                print("[green bold]Adding to list: [/]")
+                print_json(data=plot_report)
                 plots_list.append(plot_report)
+
         if input("Do you want to add another report? (y/n): ") != "y":
             break
+
     print("\nPlotting data...\n\n")
     plot_report_data(*plots_list, data_labels=labels)
 
@@ -387,26 +495,38 @@ def main_menu() -> None:
         3: plot_data,
         4: quit_program,
     }
+
     table = Table(title="MAIN MENU")
     table.add_column("Index")
     table.add_column("Options")
+
     for key, value in menu_items.items():
         table.add_row(str(key), value)
+
     console.print(table)
+
     try:
         menu_selection = int(input("Please select an option: "))
+
     except ValueError:
-        print("Invalid input!")
+        print("[bold red]Invalid input![/]")
         return
-    except IndexError:
-        print("Invalid selection!")
+
+    if menu_selection in selection_functions.keys():
+        selection_functions[menu_selection]()
+
+    else:
+        print("[bold red]Invalid selection![/]")
         return
-    selection_functions[menu_selection]()
+
 
 
 if __name__ == "__main__":
+
     if not os.path.exists("data/"):
         os.makedirs("data/")
+
     print("Welcome to Labor Report Downloader\n")
+
     while True:
         main_menu()
