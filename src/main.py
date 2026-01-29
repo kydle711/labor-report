@@ -376,23 +376,23 @@ def get_report() -> None:
     write_report_to_file(labor_hours_dict, report_name)
 
 
-def get_stored_data(report_file=REPORT_FILE_PATH) -> tuple[dict, list]:
+def get_stored_data(report_file=REPORT_FILE_PATH) -> tuple[dict, dict]:
     print("Displaying reports...")
     with open(report_file, "r") as f:
         data = json.load(f)
-    return data, [item for item in list(enumerate(data.keys()))]
+    return data, {index: item for index, item in (enumerate(data.keys()))}
 
 
-def get_user_selection(selection_menu: list) -> int | None:
+def get_user_selection(selection_menu: dict) -> int | None:
     table = Table(title="Stored Reports")
     table.add_column("Index")
     table.add_column("Start Date")
     table.add_column("End Date")
     table.add_column("Report Type")
 
-    for item in selection_menu:
-        index = str(item[0])
-        title = item[1]
+    for key, value in selection_menu.items():
+        index = str(key)
+        title = value
 
         date_range, report_type = title.split("::")
         start_date, end_date = date_range.split(":")
@@ -416,39 +416,37 @@ def get_user_selection(selection_menu: list) -> int | None:
 
 
 def list_report() -> None:
-    data, selection_list = get_stored_data()
+    data, selection_dict = get_stored_data()
 
     print("Which report would you like to print?\n")
 
-    selection = get_user_selection(selection_list)
+    selection = get_user_selection(selection_dict)
 
-    for item in selection_list:
-        if item[0] == selection:
-            print_json(data=data[item[1]])
+    if selection in selection_dict.keys():
+        print_json(data=data[selection_dict[selection]])
 
-        else:
-            print("[red bold]Invalid selection![/]\n")
+    else:
+        print("[red bold]Invalid selection![/]\n")
 
 
 def delete_report(report_file=REPORT_FILE_PATH) -> None:
-    data, selection_list = get_stored_data()
+    data, selection_dict = get_stored_data()
 
     print("Which report would you like to delete?\n")
 
-    selection = get_user_selection(selection_list)
+    selection = get_user_selection(selection_dict)
 
-    for item in selection_list:
-        if item[0] == selection:
-            removed_report = data.pop(item[1])
+    if selection in selection_dict.keys():
+        data.pop(selection_dict[selection])
 
-            print("[red bold]Deleting the following report: [/]")
-            print_json(data=removed_report)
+        print("[red bold]Deleting the following report:[/]")
+        print(f"[red]{selection_dict[selection]}[/]")
 
-            with open(report_file, "w") as f:
-                json.dump(data, f, indent=4)
+        with open(report_file, "w") as f:
+            json.dump(data, f, indent=4)
 
-        else:
-            print("[red bold]Invalid selection![/]\n")
+    else:
+        print("[red bold]Invalid selection![/]\n")
 
 
 def plot_data() -> None:
@@ -456,18 +454,18 @@ def plot_data() -> None:
     labels = []
 
     while True:
-        data, selection_list = get_stored_data()
+        data, selection_dict = get_stored_data()
         print("Which report would you like to plot?\n")
-        selection = get_user_selection(selection_list)
+        selection = get_user_selection(selection_dict)
 
-        for item in selection_list:
-            if item[0] == selection:
-                labels.append(item[1])
-                plot_report = data.pop(item[1])
+        if selection in selection_dict.keys():
 
-                print("[green bold]Adding to list: [/]")
-                print_json(data=plot_report)
-                plots_list.append(plot_report)
+            labels.append(selection_dict[selection])
+            report_to_plot = data[selection_dict[selection]]
+
+            print("[green bold]Adding to list: [/]")
+            print_json(data=report_to_plot)
+            plots_list.append(report_to_plot)
 
         if input("Do you want to add another report? (y/n): ") != "y":
             break
