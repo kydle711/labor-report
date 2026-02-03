@@ -1,11 +1,11 @@
 import os
+import sys
 import json
 from json import JSONDecodeError
 
 import requests
 import traceback
 
-from time import sleep
 from datetime import date
 from calendar import prmonth
 from dotenv import load_dotenv
@@ -22,36 +22,81 @@ REPORT_FILE_PATH = os.path.join("data", "reports.json")
 
 URL = "https://rest.method.me/api/v1"
 
-load_dotenv(dotenv_path=".env")
-
-API_KEY = os.getenv("MY_API_KEY")
-
-if not API_KEY:
-    raise RuntimeError("API key could not be found")
-
 report_types = {
-    "Lost Time": "Accurate - Lost Time",
-    "Rental": "Accurate Rental",
-    "Service Warranty": "Accurate Service Warranty",
-    "Vehicle Maintenance": "Accurate Vehicle Maintenance",
-    "All Internals": None,
-    "Brake cleaner sales": "Brake cleaner",
-    "Service Calls": "Service calls",
-    "Parts per labor hour": "PPLH"
+    "Lost Time": {
+        "customer": "Accurate - Lost Time",
+        "item": "labor:"
+    },
+    "Rental": {
+        "customer": "Accurate Rental",
+        "item": "labor:"
+    },
+    "Service Warranty": {
+        "customer": "Accurate Service Warranty",
+        "item": "labor:"
+    },
+    "Vehicle Maintenance": {
+        "customer": "Accurate Vehicle Maintenance",
+        "item": "labor:",
+    },
+    "All Internals": {
+        "customer": (
+            "Accurate - Lost Time",
+            "Accurate Rental",
+            "Accurate Service Warranty",
+            "Accurate Vehicle Maintenance",
+        ),
+        "item": "labor:",
+    },
+    "Brake cleaner sales": {
+        "customer": "",
+        "item": "Brake cleaner"
+    },
+    "Service Calls": {
+        "customer": "",
+        "item": "Service call:"
+    },
+    "Parts per labor hour": {
+        "customer": "",
+        "item": "PPLH"
+    },
 }
 
-headers = {"Authorization": f"APIKey {API_KEY}"}
+headers = {"Authorization": ""}
 payload = {}
 
 console = Console()
 
+def initialize_api_key() -> str:
+    load_dotenv(dotenv_path=".env")
+
+    api_key = os.getenv("MY_API_KEY")
+
+    if api_key is None:
+        api_key = input(
+            "Please paste your API key and press enter('q' to exit): "
+        )
+
+        if api_key == "q":
+            quit()
+
+        with open(".env", "w") as api_file:
+            key_variable = f"MY_API_KEY={api_key}"
+            api_file.write(key_variable)
+
+    return f"APIkey {api_key}"
+
+
 def get_technician_names() -> list:
     with Progress() as progress:
-        tech_name_task = progress.add_task("Checking technician names...", total=None)
+        tech_name_task = progress.add_task(
+            "Checking technician names...", total=1
+        )
         params = {"skip": 0, "top": 100, "select": "FullName"}
 
         response = requests.get(
-            f"{URL}/tables/FieldTechnicians", params=params, headers=headers
+            f"{URL}/tables/FieldTechnicians",
+            params=params, headers=headers
         )
 
         data = response.json()
@@ -61,7 +106,9 @@ def get_technician_names() -> list:
     return names_list
 
 
-def get_work_order_count(start: str, end: str, customer_filter: str | None) -> int | None:
+def get_work_order_count(
+    start: str, end: str, customer_filter: str | None
+) -> int | None:
     if customer_filter:
         customer_filter_string = (
             f" and (EntityCompanyName eq '{customer_filter}' "
@@ -73,16 +120,20 @@ def get_work_order_count(start: str, end: str, customer_filter: str | None) -> i
 
     params = {
         "apply": f"filter(ActualCompletedDate ge '{start}T00:00:00' and "
-                 f"ActualCompletedDate lt '{end}T00:00:00'{customer_filter_string})"
-                 f"/aggregate($count as TotalWorkOrders)"
+        f"ActualCompletedDate lt '{end}T00:00:00'{customer_filter_string})"
+        f"/aggregate($count as TotalWorkOrders)"
     }
 
-    response = requests.get(f"{URL}/tables/Activity", params=params, headers=headers)
+    response = requests.get(f"{URL}/tables/Activity",
+                            params=params, headers=headers
+                            )
 
     if response.status_code == 200:
         data = response.json()
         total = int(data["value"][0]["TotalWorkOrders"])
-        print(f"[bold green]Total Work Orders found:[/bold green][bold yellow] {total}[/bold yellow]")
+        print(
+            f"[bold green]Total Work Orders found:[/bold green][bold yellow] {total}[/bold yellow]"
+        )
 
         return total
 
@@ -101,7 +152,6 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
     else:
         customer_filter_string = ""
 
-
     params = {
         "skip": 0,
         "top": 100,
@@ -113,7 +163,9 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
     total_work_orders = get_work_order_count(start, end, customer_filter)
 
     with Progress() as progress:
-        task = progress.add_task("Getting work order numbers...", total=total_work_orders)
+        task = progress.add_task(
+            "Getting work order numbers...", total=total_work_orders
+        )
 
         while True:
             progress.update(task, advance=100)
@@ -144,7 +196,8 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
 
 
 def parameterize_wo_list(wo_list: list) -> list:
-    """Break large work order list into bite-sized chunks to pass as filter params"""
+    """Break large work order list into bite-sized chunks to pass as
+    filter params"""
     filter_list = []
 
     for num in wo_list:
@@ -209,7 +262,7 @@ def get_labor_items(work_order_num_list) -> list:
     return data_list
 
 
-def get_all_job_items(work_order_num_list, item_filter: str | None=None) -> list:
+def get_all_job_items(work_order_num_list, item_filter: str | None = None) -> list:
     data_list = []
     param_list = parameterize_wo_list(work_order_num_list)
 
@@ -309,7 +362,7 @@ def get_date(date_type: str) -> str | None:
             continue
 
 
-def get_report_type(types: dict) -> str:
+def get_report_type(types: dict) -> tuple[str, dict]:
     while True:
         table = Table(title="Report Types")
         table.add_column("Index")
@@ -324,7 +377,7 @@ def get_report_type(types: dict) -> str:
             selected_index = int(input("Please select report number: "))
             report_key = list(types.keys())[selected_index]
 
-            return types[report_key]
+            return report_key, types[report_key]
 
         except ValueError:
             print("[red bold]Please enter a number![/]\n\n")
@@ -333,10 +386,48 @@ def get_report_type(types: dict) -> str:
             print("[red bold]Invalid index! Try again.[/]\n\n")
 
 
+def resolve_report_type(key: str, selected_type: dict) -> tuple[str, str, bool, bool]:
+    """ "Lost Time": {"customer": "Accurate - Lost Time",
+          "item": "labor:"},
+
+    "Rental": {"customer": "Accurate Rental",
+               "item": "labor:"},
+
+    "Service Warranty": {"customer": "Accurate Service Warranty",
+                         "item": "labor:"},
+
+    "Vehicle Maintenance": {"customer": "Accurate Vehicle Maintenance",
+                            "item": "labor:"},
+
+    "All Internals": {"customer": ("Accurate - Lost Time",
+                                   "Accurate Rental",
+                                   "Accurate Service Warranty",
+                                   "Accurate Vehicle Maintenance"),
+                      "item": "labor:"},
+
+    "Brake cleaner sales": {"customer": "",
+                            "item": "Brake cleaner"},
+
+    "Service Calls": {"customer": "",
+                      "item": "Service call:"},
+
+    "Parts per labor hour": {"customer": "",
+                             "item": "PPLH"}"""
+    exclude_flag = False
+    PPLH_flag = False
+
+    if key == "All Internals":
+        exclude_flag = True
+
+    if key == "Parts per labor hour":
+        PPLH_flag = True
+
+    return selected_type["customer"], selected_type["item"], exclude_flag, PPLH_flag
+
+
 def write_report_to_file(
     new_data: dict, data_name: str, report_file=REPORT_FILE_PATH
 ) -> None:
-
     path = Path(report_file)
 
     if path.exists():
@@ -364,8 +455,13 @@ def create_report_name(start: str, end: str, report_type: str) -> str:
 def get_report() -> None:
     start_date = get_date("start")
     end_date = get_date("end")
+
     field_tech_list = get_technician_names()
-    report_request_type = get_report_type(report_types)
+    report_title, report_request_type = get_report_type(report_types)
+
+    customer_filter, item_filter, exclude_flag, PPLH_flag = resolve_report_type(
+        key=report_title, selected_type=report_request_type
+    )
 
     work_orders = get_work_orders_by_range(start_date, end_date, report_request_type)
 
@@ -459,7 +555,6 @@ def plot_data() -> None:
         selection = get_user_selection(selection_dict)
 
         if selection in selection_dict.keys():
-
             labels.append(selection_dict[selection])
             report_to_plot = data[selection_dict[selection]]
 
@@ -518,8 +613,8 @@ def main_menu() -> None:
         return
 
 
-
 if __name__ == "__main__":
+    headers["Authorization"] = initialize_api_key()
 
     if not os.path.exists("data/"):
         os.makedirs("data/")
