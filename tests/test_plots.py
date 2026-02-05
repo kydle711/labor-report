@@ -1,6 +1,6 @@
 import pytest
 
-from src.plots import _calculate_mean, calculate_stand_dev
+from labor_report.plots import _calculate_mean, calculate_stand_dev
 
 
 class TestCalculateMean:

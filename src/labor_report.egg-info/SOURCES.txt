@@ -1,0 +1,13 @@
+License.txt
+README.md
+pyproject.toml
+src/labor_report/__init__.py
+src/labor_report/main.py
+src/labor_report/plots.py
+src/labor_report.egg-info/PKG-INFO
+src/labor_report.egg-info/SOURCES.txt
+src/labor_report.egg-info/dependency_links.txt
+src/labor_report.egg-info/requires.txt
+src/labor_report.egg-info/top_level.txt
+tests/test_main.py
+tests/test_plots.py

@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.table import Table
 from rich import print_json, print
 
-from plots import plot_report_data
+from labor_report.plots import plot_report_data
 
 REPORT_FILE_PATH = os.path.join("data", "reports.json")
 api_key_file = ".env"
