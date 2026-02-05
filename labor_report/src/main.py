@@ -19,6 +19,7 @@ from rich import print_json, print
 from plots import plot_report_data
 
 REPORT_FILE_PATH = os.path.join("data", "reports.json")
+api_key_file = ".env"
 
 URL = "https://rest.method.me/api/v1"
 
@@ -33,7 +34,7 @@ report_types = {
     },
     "Service Warranty": {
         "customer": "Accurate Service Warranty",
-        "item": "labor:"
+    "item": "labor:"
     },
     "Vehicle Maintenance": {
         "customer": "Accurate Vehicle Maintenance",
@@ -50,7 +51,7 @@ report_types = {
     },
     "Brake cleaner sales": {
         "customer": "",
-        "item": "Brake cleaner"
+        "item": "BRAKE CLEANER"
     },
     "Service Calls": {
         "customer": "",
@@ -67,8 +68,8 @@ payload = {}
 
 console = Console()
 
-def initialize_api_key() -> str:
-    load_dotenv(dotenv_path=".env")
+def initialize_api_key(key_path) -> str:
+    load_dotenv(dotenv_path=key_path)
 
     api_key = os.getenv("MY_API_KEY")
 
@@ -109,18 +110,10 @@ def get_technician_names() -> list:
 def get_work_order_count(
     start: str, end: str, customer_filter: str | None
 ) -> int | None:
-    if customer_filter:
-        customer_filter_string = (
-            f" and (EntityCompanyName eq '{customer_filter}' "
-            f"or ContactsName eq '{customer_filter}')"
-        )
-
-    else:
-        customer_filter_string = ""
 
     params = {
         "apply": f"filter(ActualCompletedDate ge '{start}T00:00:00' and "
-        f"ActualCompletedDate lt '{end}T00:00:00'{customer_filter_string})"
+        f"ActualCompletedDate lt '{end}T00:00:00'{customer_filter})"
         f"/aggregate($count as TotalWorkOrders)"
     }
 
@@ -140,24 +133,34 @@ def get_work_order_count(
     else:
         return None
 
+def generate_customer_filter(*customers, exclude) -> str:
+    if exclude is False:
+        join_param = " or "
+        comparator = "eq"
+    else:
+        join_param = " and "
+        comparator = "ne"
+
+    customer_filter_list = [
+        f"(EntityCompanyName {comparator} '{customer}' "
+        f"or ContactsName {comparator} '{customer}')" for customer in customers
+    ]
+
+    customer_filter_string = join_param.join(customer_filter_list)
+    customer_filter_string = f" and {customer_filter_string}"
+
+    return customer_filter_string
+
 
 def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list:
     work_order_dict_list = []
-    if customer_filter is not None:
-        customer_filter_string = (
-            f" and (EntityCompanyName eq '{customer_filter}' "
-            f"or ContactsName eq '{customer_filter}')"
-        )
-
-    else:
-        customer_filter_string = ""
 
     params = {
         "skip": 0,
         "top": 100,
         "select": "RecordID",
         "filter": f"ActualCompletedDate ge '{start}T00:00:00' "
-        f"and ActualCompletedDate lt '{end}T00:00:00'{customer_filter_string}",
+        f"and ActualCompletedDate lt '{end}T00:00:00'{customer_filter}",
     }
 
     total_work_orders = get_work_order_count(start, end, customer_filter)
@@ -213,22 +216,41 @@ def parameterize_wo_list(wo_list: list) -> list:
 
     return param_list
 
+def get_items_per_work_order(work_order_num: int) -> list[dict]:
+        params = {
+            "skip": 0,
+            "top": 100,
+            "select": "Item, Qty, Amount",
+            "filter": f"ActivityNo eq '{work_order_num}'"
+        }
 
-def get_labor_items(work_order_num_list) -> list:
+        response = requests.get(
+            f"{URL}/tables/ActivityJobItems",
+            params=params, headers=headers
+        )
+
+        data = response.json()
+        if "value" in data:
+            data = data["value"]
+
+        return data
+
+
+def get_job_items(work_order_num_list, item_filter) -> list[dict]:
     data_list = []
     param_list = parameterize_wo_list(work_order_num_list)
 
     with Progress() as progress:
-        task = progress.add_task("Getting labor items...", total=len(param_list))
+        task = progress.add_task("Getting work order items...", total=len(param_list))
 
-        for parameter in param_list:
+        for work_order_parameter in param_list:
             progress.update(task, advance=1)
 
             params = {
                 "skip": 0,
                 "top": 100,
                 "select": "Item, Qty",
-                "filter": f"contains(Item,'labor') and {parameter}",
+                "filter": f"contains(Item, '{item_filter}') and {work_order_parameter}",
             }
 
             try:
@@ -308,15 +330,79 @@ def get_all_job_items(work_order_num_list, item_filter: str | None = None) -> li
 
     return data_list
 
+def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
+    total_amount = 0
 
-def calulate_pplh(wo_nums: list, job_items: list, tech_names: list) -> dict:
-    pass
+    #track total labor hours per tech
+    labor_dict = {name: 0 for name in tech_names}
+    tag = "labor:"
+
+    for item in items:
+        item_name = item["Item"]
+
+        if not item_name: continue
+
+        # If 'labor' in item name, extract tech name, then add tech and hrs to dict
+        if tag in item_name:
+            tech_name = item_name.lstrip(tag)
+            if tech_name in labor_dict:
+                labor_dict[tech_name] += item["Qty"]
+
+        # If not a labor item or service call fee, add amount to total for WO
+        elif "Service Call" not in item_name:
+            total_amount += item["Amount"]
+
+    total_hours = sum(labor_dict.values())
+
+    proportion_dict = {name: 0 for name in labor_dict.keys()}
+
+    for name in proportion_dict.keys():
+        if proportion_dict[name] > 0 and total_hours > 0:
+            # Divide each tech's hours by total hours for a percentage
+            proportion_dict[name] = labor_dict[name] / total_hours
+
+    pplh_per_wo_dict = {
+        name: total_amount * proportion_dict[name] for name in proportion_dict.keys()
+    }
+
+    return pplh_per_wo_dict
 
 
-def tally_job_tems(items: list, tech_names: list) -> dict:
+def calculate_parts_per_labor_hour(
+        work_orders: list, tech_names: list
+) -> dict:
+    pplh_dict = {name: 0 for name in tech_names}
+
+    with Progress() as progress:
+        task = progress.add_task(
+            "Calculating parts per labor hour...", total=len(work_orders))
+
+        for work_order in work_orders:
+            try:
+                # Get all job items from a single WO
+                job_items = get_items_per_work_order(work_order)
+                pplh_per_work_order_dict = divide_item_amounts_per_tech(job_items, tech_names)
+
+                for tech in pplh_per_work_order_dict.keys():
+
+                    if pplh_dict[tech] == 0: first_value = True
+
+                    pplh_dict[tech] += pplh_per_work_order_dict[tech]
+                    if not first_value:
+                        pplh_dict[tech] /= 2
+            except Exception:
+                print(traceback.format_exc())
+
+            progress.update(task, advance=1)
+
+    return pplh_dict
+
+
+
+def tally_labor_items(items: list, labor_filter: str, tech_names: list) -> dict:
     labor_dict = {name: 0 for name in tech_names}
     with Progress() as progress:
-        task = progress.add_task("Counting hours...", total=len(items))
+        task = progress.add_task(f"Counting {labor_filter}...", total=len(items))
 
         for job_item in items:
             progress.update(task, advance=1)
@@ -324,8 +410,8 @@ def tally_job_tems(items: list, tech_names: list) -> dict:
             try:
                 item_name = job_item["Item"]
 
-                if item_name and "labor" in item_name:
-                    tech_name_key = item_name.lstrip("labor:")
+                if item_name and labor_filter in item_name:
+                    tech_name_key = item_name.lstrip(labor_filter)
 
                     if tech_name_key in tech_names:
                         labor_dict[tech_name_key] += job_item["Qty"]
@@ -362,7 +448,7 @@ def get_date(date_type: str) -> str | None:
             continue
 
 
-def get_report_type(types: dict) -> tuple[str, dict]:
+def get_report_type(types: dict) -> str:
     while True:
         table = Table(title="Report Types")
         table.add_column("Index")
@@ -376,8 +462,8 @@ def get_report_type(types: dict) -> tuple[str, dict]:
         try:
             selected_index = int(input("Please select report number: "))
             report_key = list(types.keys())[selected_index]
-
-            return report_key, types[report_key]
+            
+            return report_key
 
         except ValueError:
             print("[red bold]Please enter a number![/]\n\n")
@@ -386,43 +472,21 @@ def get_report_type(types: dict) -> tuple[str, dict]:
             print("[red bold]Invalid index! Try again.[/]\n\n")
 
 
-def resolve_report_type(key: str, selected_type: dict) -> tuple[str, str, bool, bool]:
-    """ "Lost Time": {"customer": "Accurate - Lost Time",
-          "item": "labor:"},
-
-    "Rental": {"customer": "Accurate Rental",
-               "item": "labor:"},
-
-    "Service Warranty": {"customer": "Accurate Service Warranty",
-                         "item": "labor:"},
-
-    "Vehicle Maintenance": {"customer": "Accurate Vehicle Maintenance",
-                            "item": "labor:"},
-
-    "All Internals": {"customer": ("Accurate - Lost Time",
-                                   "Accurate Rental",
-                                   "Accurate Service Warranty",
-                                   "Accurate Vehicle Maintenance"),
-                      "item": "labor:"},
-
-    "Brake cleaner sales": {"customer": "",
-                            "item": "Brake cleaner"},
-
-    "Service Calls": {"customer": "",
-                      "item": "Service call:"},
-
-    "Parts per labor hour": {"customer": "",
-                             "item": "PPLH"}"""
+def resolve_report_type(key: str, reports_dict: dict) -> tuple[str, str, bool, bool]:
     exclude_flag = False
-    PPLH_flag = False
+    parts_per_labor_hour_flag = False
+    report_type = reports_dict[key]
 
     if key == "All Internals":
         exclude_flag = True
 
     if key == "Parts per labor hour":
-        PPLH_flag = True
+        parts_per_labor_hour_flag = True
 
-    return selected_type["customer"], selected_type["item"], exclude_flag, PPLH_flag
+    return (report_type["customer"],
+            report_type["item"],
+            exclude_flag,
+            parts_per_labor_hour_flag)
 
 
 def write_report_to_file(
@@ -457,19 +521,28 @@ def get_report() -> None:
     end_date = get_date("end")
 
     field_tech_list = get_technician_names()
-    report_title, report_request_type = get_report_type(report_types)
+    
+    # Get user input for report type
+    report_title = get_report_type(report_types)
 
-    customer_filter, item_filter, exclude_flag, PPLH_flag = resolve_report_type(
-        key=report_title, selected_type=report_request_type
+    customers, item, exclude_flag, PPLH_flag = resolve_report_type(
+        key=report_title, reports_dict=report_types
     )
 
-    work_orders = get_work_orders_by_range(start_date, end_date, report_request_type)
+    customer_filter = generate_customer_filter(customers, exclude=exclude_flag)
 
-    job_items = get_labor_items(work_orders)
-    labor_hours_dict = tally_job_tems(job_items, field_tech_list)
+    work_orders = get_work_orders_by_range(start_date, end_date, customer_filter)
 
-    report_name = create_report_name(start_date, end_date, report_request_type)
-    write_report_to_file(labor_hours_dict, report_name)
+    if PPLH_flag:
+        report_dict = calculate_parts_per_labor_hour(work_orders, field_tech_list)
+    elif item == 'BRAKE CLEANER':
+        pass
+    else:
+        job_items = get_job_items(work_orders, item)
+        report_dict = tally_labor_items(job_items, item, field_tech_list)
+
+    report_name = create_report_name(start_date, end_date, report_title)
+    write_report_to_file(report_dict, report_name)
 
 
 def get_stored_data(report_file=REPORT_FILE_PATH) -> tuple[dict, dict]:
@@ -614,7 +687,7 @@ def main_menu() -> None:
 
 
 if __name__ == "__main__":
-    headers["Authorization"] = initialize_api_key()
+    headers["Authorization"] = initialize_api_key(api_key_file)
 
     if not os.path.exists("data/"):
         os.makedirs("data/")
