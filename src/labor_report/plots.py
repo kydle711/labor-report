@@ -7,17 +7,21 @@ import numpy as np
 def _calculate_mean(data_set: dict[str:float | int], ignore_zero=True) -> float:
     data_sum = 0
     divisor = 0
+
     if ignore_zero:
         for value in data_set.values():
             if value > 0:
                 data_sum += value
                 divisor += 1
+
     else:
         for value in data_set.values():
             data_sum += value
             divisor += 1
+
     if divisor == 0:
         return 0
+
     else:
         return data_sum / divisor
 
@@ -25,29 +29,40 @@ def _calculate_mean(data_set: dict[str:float | int], ignore_zero=True) -> float:
 def calculate_stand_dev(data_set: dict, mean: float | None = None) -> float:
     if mean is None:
         mean = _calculate_mean(data_set)
+
     total = 0
+
     for value in data_set.values():
         total += (value - +mean) ** 2
+
     average_of_total = total / len(data_set)
+
     return round(math.sqrt(average_of_total), 4)
 
 
 def plot_report_data(
-    *data_sets: dict, data_labels: list, data_type="Hours", title=""
+    *data_sets: dict,
+    data_labels: list,
+    data_type="Hours",
+    title=""
 ) -> None:
     width = 0.75
     num_sets = len(data_sets)
-    categories = list(data_sets[0].keys())
     bar_spacing = 2
+
+    categories = list(data_sets[0].keys())
     x = np.arange(len(categories)) * (1 + bar_spacing)
+
     fix, ax = plt.subplots(layout="constrained")
 
     for i, data_set in enumerate(data_sets):
         mean = _calculate_mean(data_set)
         hrs = list(data_set.values())
         offset = (i - (num_sets - 1) / 2) * width
+
         rects = ax.bar(x + offset, hrs, width, label=data_labels[i])
         bar_color = rects.patches[0].get_facecolor()
+
         ax.axhline(
             mean, color=bar_color, linestyle="--", linewidth=1, label=f"Avg: {mean:.2f}"
         )
@@ -55,7 +70,7 @@ def plot_report_data(
         ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.10), ncol=2, frameon=False)
 
     ax.set_xticks(x, categories, rotation=70)
-
     ax.set_ylabel(data_type)
-    ax.set_title("Lost Time hours per Technician")
+    ax.set_title(title)
+
     plt.show()
