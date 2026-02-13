@@ -1,22 +1,15 @@
-<<<<<<< HEAD
 import os
 import json
 import logging
+import requests
+import traceback
 
 from json import JSONDecodeError
 
-import requests
-=======
-import json
-import os
->>>>>>> dd4ccbe (Minor changes to funcs and formatting)
-import traceback
 from calendar import prmonth
 from datetime import date
-from json import JSONDecodeError
 from pathlib import Path
 
-import requests
 from dotenv import load_dotenv
 from rich import print, print_json
 from rich.console import Console
@@ -224,14 +217,11 @@ def get_items_per_work_order(work_order_num: int) -> list[dict]:
     params = {
         "skip": 0,
         "top": 100,
-<<<<<<< HEAD
         "select": "ActivityNo, Item, Qty, Amount",
         "filter": f"ActivityNo eq '{work_order_num}'",
         "orderby": "ActivityNo asc",
-=======
         "select": "Item, Qty, Amount",
         "filter": f"ActivityNo eq '{work_order_num}'",
->>>>>>> dd4ccbe (Minor changes to funcs and formatting)
     }
 
     response = requests.get(
@@ -242,10 +232,7 @@ def get_items_per_work_order(work_order_num: int) -> list[dict]:
     if "value" in data:
         data = data["value"]
 
-<<<<<<< HEAD
     logger.debug(f"get_items_per_work_order - DATA: {data}")
-=======
->>>>>>> dd4ccbe (Minor changes to funcs and formatting)
     return data
 
 
@@ -260,16 +247,13 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
             params = {
                 "skip": 0,
                 "top": 100,
-<<<<<<< HEAD
                 "select": "ActivityNo, Item, Qty",
                 "filter": f"contains(Item, '{item_filter}') and {work_order_parameter}",
                 "orderby": "ActivityNo asc",
-=======
                 "select": "Item, Qty",
                 "filter": (
                     f"contains(Item, '{item_filter}') and{work_order_parameter}"
                 ),
->>>>>>> dd4ccbe (Minor changes to funcs and formatting)
             }
 
             try:
@@ -309,7 +293,10 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
     print(f"[bold yellow]Number of total job items[/] [bold green] {len(data_list)}[/]")
     return data_list
 
-#TODO: REMOVE THIS??
+
+# TODO: REMOVE THIS??
+
+
 def get_all_job_items(work_order_num_list, item_filter: str | None = None) -> list:
     data_list = []
     param_list = parameterize_wo_list(work_order_num_list)
@@ -362,12 +349,10 @@ def get_all_job_items(work_order_num_list, item_filter: str | None = None) -> li
 def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
     total_amount = 0
 
-<<<<<<< HEAD
-    logger.debug(f"divide_item_amounts_per_tech - ITEMS: {items}\n"
-                 f"TECH NAMES: {tech_names}")
+    logger.debug(
+        f"divide_item_amounts_per_tech - ITEMS: {items}\nTECH NAMES: {tech_names}"
+    )
 
-=======
->>>>>>> dd4ccbe (Minor changes to funcs and formatting)
     # track total labor hours per tech
     labor_dict = {name: 0 for name in tech_names}
     tag = "labor:"
@@ -408,11 +393,8 @@ def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
 
 
 def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
-<<<<<<< HEAD
     pplh_raw_dict = {name: {"total": 0, "divisor": 0} for name in tech_names}
-=======
     pplh_dict = {name: 0 for name in tech_names}
->>>>>>> dd4ccbe (Minor changes to funcs and formatting)
 
     with Progress() as progress:
         task = progress.add_task(
@@ -427,19 +409,16 @@ def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
                 )
 
                 for tech in pplh_per_work_order_dict.keys():
-<<<<<<< HEAD
                     if pplh_raw_dict[tech] == 0:
                         pplh_raw_dict[tech]["total"] += pplh_per_work_order_dict[tech]
                         pplh_raw_dict[tech]["divisor"] += 1
 
-=======
                     if pplh_dict[tech] == 0:
                         first_value = True
 
                     pplh_dict[tech] += pplh_per_work_order_dict[tech]
                     if not first_value:
                         pplh_dict[tech] /= 2
->>>>>>> dd4ccbe (Minor changes to funcs and formatting)
             except Exception:
                 print(traceback.format_exc())
 
@@ -459,6 +438,7 @@ def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
         pplh_dict[name] = pplh
 
     return pplh_dict
+
 
 def tally_labor_items(items: list, labor_filter: str, tech_names: list) -> dict:
     labor_dict = {name: 0 for name in tech_names}
