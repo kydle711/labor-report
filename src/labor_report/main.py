@@ -19,9 +19,9 @@ from rich import print_json, print
 
 from labor_report.plots import plot_report_data
 
-log_file_path = os.path.join('data', 'info.log')
+log_file_path = os.path.join("data", "info.log")
 if not os.path.exists(log_file_path):
-    with open(log_file_path, 'w') as f:
+    with open(log_file_path, "w") as f:
         pass
 
 logger = logging.getLogger(__name__)
@@ -33,18 +33,9 @@ api_key_file = ".env"
 URL = "https://rest.method.me/api/v1"
 
 report_types = {
-    "Lost Time": {
-        "customer": "Accurate - Lost Time",
-        "item": "labor:"
-    },
-    "Rental": {
-        "customer": "Accurate Rental",
-        "item": "labor:"
-    },
-    "Service Warranty": {
-        "customer": "Accurate Service Warranty",
-    "item": "labor:"
-    },
+    "Lost Time": {"customer": "Accurate - Lost Time", "item": "labor:"},
+    "Rental": {"customer": "Accurate Rental", "item": "labor:"},
+    "Service Warranty": {"customer": "Accurate Service Warranty", "item": "labor:"},
     "Vehicle Maintenance": {
         "customer": "Accurate Vehicle Maintenance",
         "item": "labor:",
@@ -58,18 +49,9 @@ report_types = {
         ),
         "item": "labor:",
     },
-    "Brake cleaner sales": {
-        "customer": "",
-        "item": "BRAKE CLEANER"
-    },
-    "Service Calls": {
-        "customer": "",
-        "item": "Service call:"
-    },
-    "Parts per labor hour": {
-        "customer": "",
-        "item": "PPLH"
-    },
+    "Brake cleaner sales": {"customer": "", "item": "BRAKE CLEANER"},
+    "Service Calls": {"customer": "", "item": "Service call:"},
+    "Parts per labor hour": {"customer": "", "item": "PPLH"},
 }
 
 headers = {"Authorization": ""}
@@ -77,15 +59,14 @@ payload = {}
 
 console = Console()
 
+
 def initialize_api_key(key_path) -> str:
     load_dotenv(dotenv_path=key_path)
 
     api_key = os.getenv("MY_API_KEY")
 
     if api_key is None:
-        api_key = input(
-            "Please paste your API key and press enter('q' to exit): "
-        )
+        api_key = input("Please paste your API key and press enter('q' to exit): ")
 
         if api_key == "q":
             quit()
@@ -99,14 +80,11 @@ def initialize_api_key(key_path) -> str:
 
 def get_technician_names() -> list:
     with Progress() as progress:
-        tech_name_task = progress.add_task(
-            "Checking technician names...", total=1
-        )
+        tech_name_task = progress.add_task("Checking technician names...", total=1)
         params = {"skip": 0, "top": 100, "select": "FullName"}
 
         response = requests.get(
-            f"{URL}/tables/FieldTechnicians",
-            params=params, headers=headers
+            f"{URL}/tables/FieldTechnicians", params=params, headers=headers
         )
 
         data = response.json()
@@ -121,16 +99,13 @@ def get_technician_names() -> list:
 def get_work_order_count(
     start: str, end: str, customer_filter: str | None
 ) -> int | None:
-
     params = {
         "apply": f"filter(ActualCompletedDate ge '{start}T00:00:00' and "
         f"ActualCompletedDate lt '{end}T00:00:00'{customer_filter})"
         f"/aggregate($count as TotalWorkOrders)"
     }
 
-    response = requests.get(f"{URL}/tables/Activity",
-                            params=params, headers=headers
-                            )
+    response = requests.get(f"{URL}/tables/Activity", params=params, headers=headers)
 
     if response.status_code == 200:
         data = response.json()
@@ -144,6 +119,7 @@ def get_work_order_count(
     else:
         return None
 
+
 def generate_customer_filter(*customers, exclude) -> str:
     if exclude is False:
         join_param = " or "
@@ -154,7 +130,8 @@ def generate_customer_filter(*customers, exclude) -> str:
 
     customer_filter_list = [
         f"(EntityCompanyName {comparator} '{customer}' "
-        f"or ContactsName {comparator} '{customer}')" for customer in customers
+        f"or ContactsName {comparator} '{customer}')"
+        for customer in customers
     ]
 
     customer_filter_string = join_param.join(customer_filter_list)
@@ -172,7 +149,7 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
         "select": "RecordID",
         "filter": f"ActualCompletedDate ge '{start}T00:00:00' "
         f"and ActualCompletedDate lt '{end}T00:00:00'{customer_filter}",
-        "orderby": "RecordID asc"
+        "orderby": "RecordID asc",
     }
 
     total_work_orders = get_work_order_count(start, end, customer_filter)
@@ -202,12 +179,13 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
 
                 params["skip"] += 100
 
-
             except Exception:
-                logger.error(f"Error in get_work_orders_by_range with the"
-                             f"following traceback{traceback.format_exc()}\n"
-                             f"Response: {response.content}\n"
-                             f"Params: {params}")
+                logger.error(
+                    f"Error in get_work_orders_by_range with the"
+                    f"following traceback{traceback.format_exc()}\n"
+                    f"Response: {response.content}\n"
+                    f"Params: {params}"
+                )
 
     work_order_list = [item["RecordID"] for item in work_order_dict_list]
 
@@ -233,26 +211,26 @@ def parameterize_wo_list(wo_list: list) -> list:
     logger.debug(f"Parameterized wo_list: {param_list}")
     return param_list
 
+
 def get_items_per_work_order(work_order_num: int) -> list[dict]:
-        params = {
-            "skip": 0,
-            "top": 100,
-            "select": "ActivityNo, Item, Qty, Amount",
-            "filter": f"ActivityNo eq '{work_order_num}'",
-            "orderby": "ActivityNo asc"
-        }
+    params = {
+        "skip": 0,
+        "top": 100,
+        "select": "ActivityNo, Item, Qty, Amount",
+        "filter": f"ActivityNo eq '{work_order_num}'",
+        "orderby": "ActivityNo asc",
+    }
 
-        response = requests.get(
-            f"{URL}/tables/ActivityJobItems",
-            params=params, headers=headers
-        )
+    response = requests.get(
+        f"{URL}/tables/ActivityJobItems", params=params, headers=headers
+    )
 
-        data = response.json()
-        if "value" in data:
-            data = data["value"]
+    data = response.json()
+    if "value" in data:
+        data = data["value"]
 
-        logger.debug(f"get_items_per_work_order - DATA: {data}")
-        return data
+    logger.debug(f"get_items_per_work_order - DATA: {data}")
+    return data
 
 
 def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
@@ -268,7 +246,7 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
                 "top": 100,
                 "select": "ActivityNo, Item, Qty",
                 "filter": f"contains(Item, '{item_filter}') and {work_order_parameter}",
-                "orderby": "ActivityNo asc"
+                "orderby": "ActivityNo asc",
             }
 
             try:
@@ -278,9 +256,11 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
                     )
 
                     if response.status_code != 200:
-                        logger.debug(f"Failed request in get_job_items: {response.status_code}:"
-                                     f"{response.content}\n"
-                                     f"Params: {params}")
+                        logger.debug(
+                            f"Failed request in get_job_items: {response.status_code}:"
+                            f"{response.content}\n"
+                            f"Params: {params}"
+                        )
                         continue
 
                     data = response.json()
@@ -299,13 +279,14 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
                         break
 
             except Exception:
-                logger.error(f"Error get_job_items: {traceback.format_exc()}\n"
-                             f"Params: {params}")
+                logger.error(
+                    f"Error get_job_items: {traceback.format_exc()}\nParams: {params}"
+                )
 
     print(f"[bold yellow]Number of total job items[/] [bold green] {len(data_list)}[/]")
     return data_list
 
-
+#TODO: REMOVE THIS??
 def get_all_job_items(work_order_num_list, item_filter: str | None = None) -> list:
     data_list = []
     param_list = parameterize_wo_list(work_order_num_list)
@@ -320,7 +301,7 @@ def get_all_job_items(work_order_num_list, item_filter: str | None = None) -> li
             "top": 100,
             "select": "ActivityNo, Item, Qty, Amount",
             "filter": parameter,
-            "orderby": "ActivityNo asc"
+            "orderby": "ActivityNo asc",
         }
 
         try:
@@ -354,35 +335,41 @@ def get_all_job_items(work_order_num_list, item_filter: str | None = None) -> li
     print(f"[bold yellow]Number of total job items[/] [bold green] {len(data_list)}[/]")
     return data_list
 
+
 def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
     total_amount = 0
 
-    #track total labor hours per tech
+    logger.debug(f"divide_item_amounts_per_tech - ITEMS: {items}\n"
+                 f"TECH NAMES: {tech_names}")
+
+    # track total labor hours per tech
     labor_dict = {name: 0 for name in tech_names}
     tag = "labor:"
 
     for item in items:
         item_name = item["Item"]
 
-        if not item_name: continue
+        if not item_name:
+            continue
 
         # If 'labor' in item name, extract tech name, then add tech and hrs to dict
         if tag in item_name:
-            tech_name = item_name.removeprefix(tag)
+            tech_name = item_name.removeprefix(tag).strip()
 
             if tech_name in labor_dict:
                 labor_dict[tech_name] += item["Qty"]
 
         # If not a labor item or service call fee, add amount to total for WO
         elif "Service Call" not in item_name:
-            total_amount += item["Amount"]
+            if item["Amount"] > 0:
+                total_amount += item["Amount"]
 
     total_hours = sum(labor_dict.values())
 
-    proportion_dict = {name: 0 for name in labor_dict.keys()}
+    proportion_dict = {name: 0.0 for name in labor_dict.keys()}
 
     for name in proportion_dict.keys():
-        if proportion_dict[name] > 0 and total_hours > 0:
+        if labor_dict[name] > 0 and total_hours > 0:
             # Divide each tech's hours by total hours for a percentage
             proportion_dict[name] = labor_dict[name] / total_hours
 
@@ -393,37 +380,45 @@ def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
     return pplh_per_wo_dict
 
 
-def calculate_parts_per_labor_hour(
-        work_orders: list, tech_names: list
-) -> dict:
-    pplh_dict = {name: 0 for name in tech_names}
+def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
+    pplh_raw_dict = {name: {"total": 0, "divisor": 0} for name in tech_names}
 
     with Progress() as progress:
         task = progress.add_task(
-            "Calculating parts per labor hour...", total=len(work_orders))
+            "Calculating parts per labor hour...", total=len(work_orders)
+        )
 
         for work_order in work_orders:
             try:
                 job_items = get_items_per_work_order(work_order)
-                pplh_per_work_order_dict = divide_item_amounts_per_tech(job_items, tech_names)
+                pplh_per_work_order_dict = divide_item_amounts_per_tech(
+                    job_items, tech_names
+                )
 
                 for tech in pplh_per_work_order_dict.keys():
+                    if pplh_raw_dict[tech] == 0:
+                        pplh_raw_dict[tech]["total"] += pplh_per_work_order_dict[tech]
+                        pplh_raw_dict[tech]["divisor"] += 1
 
-                    if pplh_dict[tech] == 0:
-                        first_value = True
-                    else:
-                        first_value = False
-
-                    pplh_dict[tech] += pplh_per_work_order_dict[tech]
-                    if not first_value:
-                        pplh_dict[tech] /= 2
             except Exception:
                 print(traceback.format_exc())
 
             progress.update(task, advance=1)
 
-    return pplh_dict
+    pplh_dict = {name: 0 for name in pplh_raw_dict.keys()}
+    for name in pplh_raw_dict.keys():
+        total = pplh_raw_dict[name]["total"]
+        divisor = pplh_raw_dict[name]["divisor"]
 
+        if total > 0 and divisor > 0:
+            pplh = total / divisor
+
+        else:
+            pplh = 0
+
+        pplh_dict[name] = pplh
+
+    return pplh_dict
 
 
 def tally_labor_items(items: list, labor_filter: str, tech_names: list) -> dict:
@@ -437,20 +432,23 @@ def tally_labor_items(items: list, labor_filter: str, tech_names: list) -> dict:
                 item_name = job_item["Item"]
 
                 if item_name and labor_filter in item_name:
-                    tech_name_key = item_name.removeprefix(labor_filter)
-                    logger.debug(f"Item name: {item_name}\n"
-                                 f"Tech name: {tech_name_key}\n")
+                    tech_name_key = item_name.removeprefix(labor_filter).strip()
+                    logger.debug(
+                        f"Item name: {item_name}\nTech name: {tech_name_key}\n"
+                    )
 
                     if tech_name_key in tech_names:
                         labor_dict[tech_name_key] += job_item["Qty"]
 
-                        logger.debug(f"Adding: {job_item["Qty"]}")
+                        logger.debug(f"Adding: {job_item['Qty']}")
 
                 progress.update(task, advance=1)
 
             except TypeError:
-                logger.error(f"Error in tally_labor_items: {traceback.format_exc()}\n"
-                             f"Job Item: {job_item} -- Labor Filter: {labor_filter}")
+                logger.error(
+                    f"Error in tally_labor_items: {traceback.format_exc()}\n"
+                    f"Job Item: {job_item} -- Labor Filter: {labor_filter}"
+                )
 
     return labor_dict
 
@@ -494,7 +492,7 @@ def get_report_type(types: dict) -> str:
         try:
             selected_index = int(input("Please select report number: "))
             report_key = list(types.keys())[selected_index]
-            
+
             return report_key
 
         except ValueError:
@@ -515,10 +513,12 @@ def resolve_report_type(key: str, reports_dict: dict) -> tuple[str, str, bool, b
     if key == "Parts per labor hour":
         parts_per_labor_hour_flag = True
 
-    return (report_type["customer"],
-            report_type["item"],
-            exclude_flag,
-            parts_per_labor_hour_flag)
+    return (
+        report_type["customer"],
+        report_type["item"],
+        exclude_flag,
+        parts_per_labor_hour_flag,
+    )
 
 
 def write_report_to_file(
@@ -547,8 +547,9 @@ def write_report_to_file(
 def create_report_name(start: str, end: str, report_type: str) -> str:
     return f"{start}:{end}::{report_type}"
 
+
 def generate_plot_title() -> str:
-    return "TEST STRING" #TODO: implement title logic
+    return "TEST STRING"  # TODO: implement title logic
 
 
 def get_report() -> None:
@@ -556,7 +557,7 @@ def get_report() -> None:
     end_date = get_date("end")
 
     field_tech_list = get_technician_names()
-    
+
     # Get user input for report type
     report_title = get_report_type(report_types)
 
@@ -570,7 +571,7 @@ def get_report() -> None:
 
     if PPLH_flag:
         report_dict = calculate_parts_per_labor_hour(work_orders, field_tech_list)
-    elif item == 'BRAKE CLEANER':
+    elif item == "BRAKE CLEANER":
         pass
     else:
         job_items = get_job_items_by_filter(work_orders, item)
@@ -579,18 +580,20 @@ def get_report() -> None:
     report_name = create_report_name(start_date, end_date, report_title)
     write_report_to_file(report_dict, report_name)
 
-    logger.debug(f"get_report local vars:\n "
-                 f"start date: {start_date}\n"
-                 f"end date: {end_date}\n"
-                 f"field_tech_list: {field_tech_list}\n"
-                 f"report_name: {report_name}\n"
-                 f"work_orders: {work_orders}\n"
-                 f"report_dict: {report_dict}\n"
-                 f"customers: {customers}\n"
-                 f"item: {item}\n"
-                 f"exclude_flag: {exclude_flag}\n"
-                 f"PPLH Flag: {PPLH_flag}\n"
-                 f"Customer filter: {customer_filter}\n")
+    logger.debug(
+        f"get_report local vars:\n "
+        f"start date: {start_date}\n"
+        f"end date: {end_date}\n"
+        f"field_tech_list: {field_tech_list}\n"
+        f"report_name: {report_name}\n"
+        f"work_orders: {work_orders}\n"
+        f"report_dict: {report_dict}\n"
+        f"customers: {customers}\n"
+        f"item: {item}\n"
+        f"exclude_flag: {exclude_flag}\n"
+        f"PPLH Flag: {PPLH_flag}\n"
+        f"Customer filter: {customer_filter}\n"
+    )
 
 
 def get_stored_data(report_file=REPORT_FILE_PATH) -> tuple[dict | None, dict | None]:
@@ -641,7 +644,6 @@ def get_user_selection(selection_menu: dict) -> int | None:
 def list_report() -> None:
     data, selection_dict = get_stored_data()
     if data is not None:
-
         print("Which report would you like to print?\n")
 
         selection = get_user_selection(selection_dict)
@@ -656,7 +658,6 @@ def list_report() -> None:
 def delete_report(report_file=REPORT_FILE_PATH) -> None:
     data, selection_dict = get_stored_data()
     if data is not None:
-
         print("Which report would you like to delete?\n")
 
         selection = get_user_selection(selection_dict)
