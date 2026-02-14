@@ -1,15 +1,20 @@
-import os
+# TODO:
+# Improve y axis labels
+# Improve speed through asyncio
+# Verify functions of all reports
+# write tests
+# add exclude techs list
+
 import json
 import logging
-import requests
+import os
 import traceback
-
-from json import JSONDecodeError
-
 from calendar import prmonth
 from datetime import date
+from json import JSONDecodeError
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 from rich import print, print_json
 from rich.console import Console
@@ -32,11 +37,11 @@ api_key_file = ".env"
 URL = "https://rest.method.me/api/v1"
 
 report_types = {
-    "Lost Time": {"customer": "Accurate - Lost Time", "item": "labor:"},
-    "Rental": {"customer": "Accurate Rental", "item": "labor:"},
-    "Service Warranty": {"customer": "Accurate Service Warranty", "item": "labor:"},
+    "Lost Time": {"customer": ("Accurate - Lost Time"), "item": "labor:"},
+    "Rental": {"customer": ("Accurate Rental"), "item": "labor:"},
+    "Service Warranty": {"customer": ("Accurate Service Warranty"), "item": "labor:"},
     "Vehicle Maintenance": {
-        "customer": "Accurate Vehicle Maintenance",
+        "customer": ("Accurate Vehicle Maintenance"),
         "item": "labor:",
     },
     "All Internals": {
@@ -48,9 +53,18 @@ report_types = {
         ),
         "item": "labor:",
     },
-    "Brake cleaner sales": {"customer": "", "item": "BRAKE CLEANER"},
-    "Service Calls": {"customer": "", "item": "Service call:"},
-    "Parts per labor hour": {"customer": "", "item": "PPLH"},
+    "All Customers": {
+        "customer": (
+            "Accurate - Lost Time",
+            "Accurate Rental",
+            "Accurate Service Warranty",
+            "Accurate Vehicle Maintenance",
+        ),
+        "item": "labor:",
+    },
+    "Brake cleaner sales": {"customer": (), "item": "brake cleaner"},
+    "Service Calls": {"customer": (), "item": "Service call:"},
+    "Parts per labor hour": {"customer": (), "item": "PPLH"},
 }
 
 headers = {"Authorization": ""}
@@ -121,22 +135,25 @@ def get_work_order_count(
         return None
 
 
-def generate_customer_filter(*customers, exclude) -> str:
-    if exclude is False:
-        join_param = " or "
-        comparator = "eq"
+def generate_customer_filter(customers: tuple, exclude: bool) -> str:
+    if len(customers) == 0:
+        customer_filter_string = ""
     else:
-        join_param = " and "
-        comparator = "ne"
+        if exclude is False:
+            join_param = " or "
+            comparator = "eq"
+        else:
+            join_param = " and "
+            comparator = "ne"
 
-    customer_filter_list = [
-        f"(EntityCompanyName {comparator} '{customer}' "
-        f"or ContactsName {comparator} '{customer}')"
-        for customer in customers
-    ]
+        customer_filter_list = [
+            f"(EntityCompanyName {comparator} '{customer}' "
+            f"or ContactsName {comparator} '{customer}')"
+            for customer in customers
+        ]
 
-    customer_filter_string = join_param.join(customer_filter_list)
-    customer_filter_string = f" and {customer_filter_string}"
+        customer_filter_string = join_param.join(customer_filter_list)
+        customer_filter_string = f" and {customer_filter_string}"
 
     return customer_filter_string
 
@@ -167,8 +184,9 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
                 )
 
                 if response.status_code != 200:
-                    print(response.status_code)
-                    print(response.content)
+                    logger.error(
+                        f"Failed request! {response.status_code}{response.content}"
+                    )
                     continue
 
                 data = response.json()
@@ -217,11 +235,9 @@ def get_items_per_work_order(work_order_num: int) -> list[dict]:
     params = {
         "skip": 0,
         "top": 100,
-        "select": "ActivityNo, Item, Qty, Amount",
+        "select": "ActivityNo, Item, ItemDescription, Qty, Amount",
         "filter": f"ActivityNo eq '{work_order_num}'",
         "orderby": "ActivityNo asc",
-        "select": "Item, Qty, Amount",
-        "filter": f"ActivityNo eq '{work_order_num}'",
     }
 
     response = requests.get(
@@ -250,10 +266,6 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
                 "select": "ActivityNo, Item, Qty",
                 "filter": f"contains(Item, '{item_filter}') and {work_order_parameter}",
                 "orderby": "ActivityNo asc",
-                "select": "Item, Qty",
-                "filter": (
-                    f"contains(Item, '{item_filter}') and{work_order_parameter}"
-                ),
             }
 
             try:
@@ -321,8 +333,9 @@ def get_all_job_items(work_order_num_list, item_filter: str | None = None) -> li
                 )
 
                 if response.status_code != 200:
-                    print(response.status_code)
-                    print(response.content)
+                    logger.error(
+                        f"Failed request!!! {response.status_code}{response.content}"
+                    )
                     continue
 
                 data = response.json()
@@ -380,13 +393,13 @@ def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
 
     proportion_dict = {name: 0.0 for name in labor_dict.keys()}
 
-    for name in proportion_dict.keys():
+    for name in tech_names:
         if labor_dict[name] > 0 and total_hours > 0:
             # Divide each tech's hours by total hours for a percentage
             proportion_dict[name] = labor_dict[name] / total_hours
 
     pplh_per_wo_dict = {
-        name: total_amount * proportion_dict[name] for name in proportion_dict.keys()
+        name: total_amount * proportion_dict[name] for name in tech_names
     }
 
     return pplh_per_wo_dict
@@ -408,29 +421,30 @@ def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
                     job_items, tech_names
                 )
 
-                for tech in pplh_per_work_order_dict.keys():
-                    if pplh_raw_dict[tech] == 0:
+                logger.debug(
+                    f"Work Order: {work_order}\n"
+                    f"Job Items: {job_items}\n"
+                    f"pplh dict for this WO: {pplh_per_work_order_dict}"
+                )
+
+                for tech in tech_names:
+                    if pplh_per_work_order_dict[tech] > 0:
                         pplh_raw_dict[tech]["total"] += pplh_per_work_order_dict[tech]
                         pplh_raw_dict[tech]["divisor"] += 1
 
-                    if pplh_dict[tech] == 0:
-                        first_value = True
-
-                    pplh_dict[tech] += pplh_per_work_order_dict[tech]
-                    if not first_value:
-                        pplh_dict[tech] /= 2
             except Exception:
-                print(traceback.format_exc())
+                logger.error(
+                    f"calculate_parts_per_labor_hour ERROR: {traceback.format_exc()}"
+                )
 
             progress.update(task, advance=1)
 
-    pplh_dict = {name: 0 for name in pplh_raw_dict.keys()}
-    for name in pplh_raw_dict.keys():
+    for name in tech_names:
         total = pplh_raw_dict[name]["total"]
         divisor = pplh_raw_dict[name]["divisor"]
 
         if total > 0 and divisor > 0:
-            pplh = total / divisor
+            pplh = round(total / divisor, 2)
 
         else:
             pplh = 0
@@ -472,7 +486,78 @@ def tally_labor_items(items: list, labor_filter: str, tech_names: list) -> dict:
     return labor_dict
 
 
-def get_date(date_type: str) -> str | None:
+def divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> dict:
+    total = 0
+
+    logger.debug(
+        f"divide_brake_cleaners_per_tech - ITEMS: {items}\nTECH NAMES: {names}\n"
+    )
+
+    labor_dict = {name: 0 for name in names}
+    tag = "labor:"
+
+    for item in items:
+        item_name = item["Item"]
+
+        if not item_name:
+            continue
+
+        if tag in item_name:
+            tech_name = item_name.removeprefix(tag).strip()
+
+            if tech_name in labor_dict:
+                labor_dict[tech_name] += item["Qty"]
+
+        elif item_key == item["ItemDescription"].lower():
+            total += item["Qty"]
+
+    total_hours = sum(labor_dict.values())
+
+    brake_cleaner_dict = {name: 0 for name in names}
+
+    if total > 0:
+        for name in labor_dict.keys():
+            if labor_dict[name] > 0:
+                brake_cleaner_dict[name] = total * (total_hours / labor_dict[name])
+
+    return brake_cleaner_dict
+
+
+def count_brake_cleaners(tech_names: list, work_orders: list, item_key: str) -> dict:
+    brake_cleaner_dict = {name: 0 for name in tech_names}
+    with Progress() as progress:
+        task = progress.add_task("Counting brake cleaners...", total=len(work_orders))
+
+        for work_order in work_orders:
+            try:
+                job_items = get_items_per_work_order(work_order)
+                brake_cleaner_per_work_order_dict = divide_brake_cleaners_per_tech(
+                    job_items, tech_names, item_key
+                )
+
+                logger.debug(
+                    f"Work Order: {work_order}\n"
+                    f"Job Items: {job_items}\n"
+                    f"brake cleaner dict for this WO: {
+                        brake_cleaner_per_work_order_dict
+                    }\n"
+                )
+
+                for tech in tech_names:
+                    brake_cleaner_dict[tech] += brake_cleaner_per_work_order_dict[tech]
+
+            except Exception:
+                logger.error(f"count_brake_cleaners error: {traceback.format_exc()}")
+
+            progress.update(task, advance=1)
+
+    for name in brake_cleaner_dict.keys():
+        brake_cleaner_dict[name] = round(brake_cleaner_dict[name])
+
+    return brake_cleaner_dict
+
+
+def get_date(date_type: str) -> str:
     while True:
         year = input(f"Please enter the {date_type} year: ")
         month = input(f"Please enter the {date_type} month: ")
@@ -521,15 +606,15 @@ def get_report_type(types: dict) -> str:
             print("[red bold]Invalid index! Try again.[/]\n\n")
 
 
-def resolve_report_type(key: str, reports_dict: dict) -> tuple[str, str, bool, bool]:
+def resolve_report_type(key: str, reports_dict: dict) -> tuple[tuple, str, bool, bool]:
     exclude_flag = False
     parts_per_labor_hour_flag = False
     report_type = reports_dict[key]
 
-    if key == "All Internals":
+    if key == "All Customers":
         exclude_flag = True
 
-    if key == "Parts per labor hour":
+    elif key == "Parts per labor hour":
         parts_per_labor_hour_flag = True
 
     return (
@@ -572,6 +657,9 @@ def generate_plot_title() -> str:
 
 
 def get_report() -> None:
+    """Main entry point to get reports. Gathers user inputs and applies logic
+    based on those inputs to get the correct report"""
+
     start_date = get_date("start")
     end_date = get_date("end")
 
@@ -590,8 +678,10 @@ def get_report() -> None:
 
     if PPLH_flag:
         report_dict = calculate_parts_per_labor_hour(work_orders, field_tech_list)
-    elif item == "BRAKE CLEANER":
-        pass
+
+    elif item.lower() == "brake cleaner":
+        report_dict = count_brake_cleaners(field_tech_list, work_orders, item)
+
     else:
         job_items = get_job_items_by_filter(work_orders, item)
         report_dict = tally_labor_items(job_items, item, field_tech_list)
@@ -662,7 +752,7 @@ def get_user_selection(selection_menu: dict) -> int | None:
 
 def list_report() -> None:
     data, selection_dict = get_stored_data()
-    if data is not None:
+    if data:
         print("Which report would you like to print?\n")
 
         selection = get_user_selection(selection_dict)
@@ -676,7 +766,7 @@ def list_report() -> None:
 
 def delete_report(report_file=REPORT_FILE_PATH) -> None:
     data, selection_dict = get_stored_data()
-    if data is not None:
+    if data:
         print("Which report would you like to delete?\n")
 
         selection = get_user_selection(selection_dict)
@@ -700,8 +790,8 @@ def plot_data() -> None:
 
     while True:
         data, selection_dict = get_stored_data()
-        if data is None:
-            return
+        if data is None is selection_dict:
+            continue
 
         print("Which report would you like to plot?\n")
         selection = get_user_selection(selection_dict)
@@ -719,8 +809,11 @@ def plot_data() -> None:
 
     print("\nPlotting data...\n\n")
 
-    report_title = generate_plot_title()
-    plot_report_data(*plots_list, data_labels=labels, title=report_title)
+    plot_type = selection_dict[selection]
+    plot_title = generate_plot_title()
+    plot_report_data(
+        *plots_list, data_labels=labels, data_type=plot_type, title=plot_title
+    )
 
 
 def quit_program() -> None:

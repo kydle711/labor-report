@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def _calculate_mean(data_set: dict[str : float | int], ignore_zero=True) -> float:
+def _calculate_mean(data_set: dict[str, float | int], ignore_zero=True) -> float:
     data_sum = 0
     divisor = 0
 
@@ -41,7 +41,7 @@ def calculate_stand_dev(data_set: dict, mean: float | None = None) -> float:
 
 
 def plot_report_data(
-    *data_sets: dict, data_labels: list, data_type="Hours", title=""
+    *data_sets: dict, data_labels: list, data_type: str, title=""
 ) -> None:
     width = 0.75
     num_sets = len(data_sets)
