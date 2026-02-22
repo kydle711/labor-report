@@ -23,13 +23,27 @@ from rich.table import Table
 
 from labor_report.plots import plot_report_data
 
-log_file_path = os.path.join("data", "info.log")
-if not os.path.exists(log_file_path):
-    with open(log_file_path, "w") as f:
+
+def project_root(start: Path | None = None) -> Path:
+    here = (start or Path(__file__)).resolve()
+    for p in [here, *here.parents]:
+        if (p / "pyproject.toml").exists() or (p / ".git").exists():
+            return p
+    raise RuntimeError(
+        "Could not locate project root (pyproject.toml or .git)")
+
+
+ROOT = project_root()
+REPORTS_PATH = ROOT / "data" / "reports.json"
+ENV_PATH = ROOT / ".env"
+
+LOG_FILE_PATH = ROOT / "data" / "info.log"
+if not os.path.exists(LOG_FILE_PATH):
+    with open(LOG_FILE_PATH, "w") as f:
         pass
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename=log_file_path, level=logging.DEBUG)
+logging.basicConfig(filename=LOG_FILE_PATH, level=logging.DEBUG)
 
 REPORT_FILE_PATH = os.path.join("data", "reports.json")
 api_key_file = ".env"
@@ -63,7 +77,7 @@ report_types = {
         "item": "labor:",
     },
     "Brake cleaner sales": {"customer": (), "item": "brake cleaner"},
-    "Service Calls": {"customer": (), "item": "Service call:"},
+    "Service Calls": {"customer": (), "item": "Service Call:Service Call - "},
     "Parts per labor hour": {"customer": (), "item": "PPLH"},
 }
 
@@ -79,12 +93,13 @@ def initialize_api_key(key_path) -> str:
     api_key = os.getenv("MY_API_KEY")
 
     if api_key is None:
-        api_key = input("Please paste your API key and press enter('q' to exit): ")
+        api_key = input(
+            "Please paste your API key and press enter('q' to exit): ")
 
         if api_key == "q":
             quit()
 
-        with open(".env", "w") as api_file:
+        with open("key_path", "w") as api_file:
             key_variable = f"MY_API_KEY={api_key}"
             api_file.write(key_variable)
 
@@ -93,7 +108,8 @@ def initialize_api_key(key_path) -> str:
 
 def get_technician_names() -> list:
     with Progress() as progress:
-        tech_name_task = progress.add_task("Checking technician names...", total=1)
+        tech_name_task = progress.add_task(
+            "Checking technician names...", total=1)
         params = {"skip": 0, "top": 100, "select": "FullName"}
 
         response = requests.get(
@@ -118,7 +134,8 @@ def get_work_order_count(
         f"/aggregate($count as TotalWorkOrders)"
     }
 
-    response = requests.get(f"{URL}/tables/Activity", params=params, headers=headers)
+    response = requests.get(f"{URL}/tables/Activity",
+                            params=params, headers=headers)
 
     if response.status_code == 200:
         data = response.json()
@@ -185,7 +202,8 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
 
                 if response.status_code != 200:
                     logger.error(
-                        f"Failed request! {response.status_code}{response.content}"
+                        f"Failed request! {response.status_code}{
+                            response.content}"
                     )
                     continue
 
@@ -221,7 +239,8 @@ def parameterize_wo_list(wo_list: list) -> list:
 
     total = len(wo_list)
     slice_size = 10
-    split_list = [filter_list[i : i + slice_size] for i in range(0, total, slice_size)]
+    split_list = [filter_list[i: i + slice_size]
+                  for i in range(0, total, slice_size)]
     param_list = []
 
     for item in split_list:
@@ -257,7 +276,8 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
     param_list = parameterize_wo_list(work_order_num_list)
 
     with Progress() as progress:
-        task = progress.add_task("Getting work order items...", total=len(param_list))
+        task = progress.add_task(
+            "Getting work order items...", total=len(param_list))
 
         for work_order_parameter in param_list:
             params = {
@@ -276,7 +296,8 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
 
                     if response.status_code != 200:
                         logger.debug(
-                            f"Failed request in get_job_items: {response.status_code}:"
+                            f"Failed request in get_job_items: {
+                                response.status_code}:"
                             f"{response.content}\n"
                             f"Params: {params}"
                         )
@@ -299,63 +320,12 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
 
             except Exception:
                 logger.error(
-                    f"Error get_job_items: {traceback.format_exc()}\nParams: {params}"
+                    f"Error get_job_items: {traceback.format_exc()}\nParams: {
+                        params}"
                 )
 
-    print(f"[bold yellow]Number of total job items[/] [bold green] {len(data_list)}[/]")
-    return data_list
-
-
-# TODO: REMOVE THIS??
-
-
-def get_all_job_items(work_order_num_list, item_filter: str | None = None) -> list:
-    data_list = []
-    param_list = parameterize_wo_list(work_order_num_list)
-
-    for parameter in param_list:
-        if item_filter:
-            item_filter = f" and contains(Item,'{item_filter}')"
-            parameter = parameter + item_filter
-
-        params = {
-            "skip": 0,
-            "top": 100,
-            "select": "ActivityNo, Item, Qty, Amount",
-            "filter": parameter,
-            "orderby": "ActivityNo asc",
-        }
-
-        try:
-            while True:
-                response = requests.get(
-                    f"{URL}/tables/ActivityJobItems", params=params, headers=headers
-                )
-
-                if response.status_code != 200:
-                    logger.error(
-                        f"Failed request!!! {response.status_code}{response.content}"
-                    )
-                    continue
-
-                data = response.json()
-
-                if "value" in data:
-                    data_list.extend(data["value"])
-
-                    if data["count"] < 100:
-                        break
-
-                    params["skip"] += 100
-
-                else:
-                    data_list.extend(data)
-                    break
-
-        except Exception:
-            print(traceback.format_exc())
-
-    print(f"[bold yellow]Number of total job items[/] [bold green] {len(data_list)}[/]")
+    print(
+        f"[bold yellow]Number of total job items[/] [bold green] {len(data_list)}[/]")
     return data_list
 
 
@@ -363,7 +333,8 @@ def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
     total_amount = 0
 
     logger.debug(
-        f"divide_item_amounts_per_tech - ITEMS: {items}\nTECH NAMES: {tech_names}"
+        f"divide_item_amounts_per_tech - ITEMS: {
+            items}\nTECH NAMES: {tech_names}"
     )
 
     # track total labor hours per tech
@@ -407,7 +378,7 @@ def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
 
 def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
     pplh_raw_dict = {name: {"total": 0, "divisor": 0} for name in tech_names}
-    pplh_dict = {name: 0 for name in tech_names}
+    pplh_dict = {name: 0.0 for name in tech_names}
 
     with Progress() as progress:
         task = progress.add_task(
@@ -434,7 +405,8 @@ def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
 
             except Exception:
                 logger.error(
-                    f"calculate_parts_per_labor_hour ERROR: {traceback.format_exc()}"
+                    f"calculate_parts_per_labor_hour ERROR: {
+                        traceback.format_exc()}"
                 )
 
             progress.update(task, advance=1)
@@ -454,18 +426,19 @@ def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
     return pplh_dict
 
 
-def tally_labor_items(items: list, labor_filter: str, tech_names: list) -> dict:
+def tally_labor_items(items: list, item_filter: str, tech_names: list) -> dict:
     labor_dict = {name: 0 for name in tech_names}
     with Progress() as progress:
-        task = progress.add_task(f"Counting {labor_filter}...", total=len(items))
+        task = progress.add_task(
+            f"Counting {item_filter}...", total=len(items))
         logger.debug(f"Number of labor items: {len(items)}\n")
         for job_item in items:
             logger.debug(f"{job_item}\n")
             try:
                 item_name = job_item["Item"]
 
-                if item_name and labor_filter in item_name:
-                    tech_name_key = item_name.removeprefix(labor_filter).strip()
+                if item_name and item_filter in item_name:
+                    tech_name_key = item_name.removeprefix(item_filter).strip()
                     logger.debug(
                         f"Item name: {item_name}\nTech name: {tech_name_key}\n"
                     )
@@ -480,7 +453,7 @@ def tally_labor_items(items: list, labor_filter: str, tech_names: list) -> dict:
             except TypeError:
                 logger.error(
                     f"Error in tally_labor_items: {traceback.format_exc()}\n"
-                    f"Job Item: {job_item} -- Labor Filter: {labor_filter}"
+                    f"Job Item: {job_item} -- Labor Filter: {item_filter}"
                 )
 
     return labor_dict
@@ -490,7 +463,8 @@ def divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> d
     total = 0
 
     logger.debug(
-        f"divide_brake_cleaners_per_tech - ITEMS: {items}\nTECH NAMES: {names}\n"
+        f"divide_brake_cleaners_per_tech - ITEMS: {
+            items}\nTECH NAMES: {names}\n"
     )
 
     labor_dict = {name: 0 for name in names}
@@ -513,12 +487,13 @@ def divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> d
 
     total_hours = sum(labor_dict.values())
 
-    brake_cleaner_dict = {name: 0 for name in names}
+    brake_cleaner_dict = {name: 0.0 for name in names}
 
     if total > 0:
         for name in labor_dict.keys():
             if labor_dict[name] > 0:
-                brake_cleaner_dict[name] = total * (total_hours / labor_dict[name])
+                brake_cleaner_dict[name] = total * \
+                    (total_hours / labor_dict[name])
 
     return brake_cleaner_dict
 
@@ -526,7 +501,8 @@ def divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> d
 def count_brake_cleaners(tech_names: list, work_orders: list, item_key: str) -> dict:
     brake_cleaner_dict = {name: 0 for name in tech_names}
     with Progress() as progress:
-        task = progress.add_task("Counting brake cleaners...", total=len(work_orders))
+        task = progress.add_task(
+            "Counting brake cleaners...", total=len(work_orders))
 
         for work_order in work_orders:
             try:
@@ -547,7 +523,8 @@ def count_brake_cleaners(tech_names: list, work_orders: list, item_key: str) -> 
                     brake_cleaner_dict[tech] += brake_cleaner_per_work_order_dict[tech]
 
             except Exception:
-                logger.error(f"count_brake_cleaners error: {traceback.format_exc()}")
+                logger.error(f"count_brake_cleaners error: {
+                             traceback.format_exc()}")
 
             progress.update(task, advance=1)
 
@@ -568,7 +545,7 @@ def get_date(date_type: str) -> str:
             day = input(f"Please enter the {date_type} day: ")
 
         except ValueError:
-            print("[red bold]Invalid entry! Try again![/]")
+            print("[red bold]Invalid year or month! Try again![/]")
             continue
 
         try:
@@ -578,7 +555,7 @@ def get_date(date_type: str) -> str:
             return date_input
 
         except ValueError:
-            print("[red bold]Invalid entry! Try again![/]")
+            print("[red bold]Invalid day! Try again![/]")
             continue
 
 
@@ -674,12 +651,14 @@ def get_report() -> None:
 
     customer_filter = generate_customer_filter(customers, exclude=exclude_flag)
 
-    work_orders = get_work_orders_by_range(start_date, end_date, customer_filter)
+    work_orders = get_work_orders_by_range(
+        start_date, end_date, customer_filter)
 
     if PPLH_flag:
-        report_dict = calculate_parts_per_labor_hour(work_orders, field_tech_list)
+        report_dict = calculate_parts_per_labor_hour(
+            work_orders, field_tech_list)
 
-    elif item.lower() == "brake cleaner":
+    elif item == "brake cleaner":
         report_dict = count_brake_cleaners(field_tech_list, work_orders, item)
 
     else:
@@ -752,7 +731,7 @@ def get_user_selection(selection_menu: dict) -> int | None:
 
 def list_report() -> None:
     data, selection_dict = get_stored_data()
-    if data:
+    if data and selection_dict:
         print("Which report would you like to print?\n")
 
         selection = get_user_selection(selection_dict)
@@ -766,7 +745,7 @@ def list_report() -> None:
 
 def delete_report(report_file=REPORT_FILE_PATH) -> None:
     data, selection_dict = get_stored_data()
-    if data:
+    if data and selection_dict:
         print("Which report would you like to delete?\n")
 
         selection = get_user_selection(selection_dict)
@@ -790,22 +769,22 @@ def plot_data() -> None:
 
     while True:
         data, selection_dict = get_stored_data()
-        if data is None is selection_dict:
-            continue
 
         print("Which report would you like to plot?\n")
-        selection = get_user_selection(selection_dict)
 
-        if selection in selection_dict.keys():
-            labels.append(selection_dict[selection])
-            report_to_plot = data[selection_dict[selection]]
+        if data and selection_dict:
+            selection = get_user_selection(selection_dict)
 
-            print("[green bold]Adding to list: [/]")
-            print_json(data=report_to_plot)
-            plots_list.append(report_to_plot)
+            if selection in selection_dict.keys():
+                labels.append(selection_dict[selection])
+                report_to_plot = data[selection_dict[selection]]
 
-        if input("Do you want to add another report? (y/n): ") != "y":
-            break
+                print("[green bold]Adding to list: [/]")
+                print_json(data=report_to_plot)
+                plots_list.append(report_to_plot)
+
+            if input("Do you want to add another report? (y/n): ") != "y":
+                break
 
     print("\nPlotting data...\n\n")
 
@@ -861,7 +840,7 @@ def main_menu() -> None:
 
 
 def main():
-    headers["Authorization"] = initialize_api_key(api_key_file)
+    headers["Authorization"] = initialize_api_key(ENV_PATH)
 
     if not os.path.exists("data/"):
         os.makedirs("data/")
