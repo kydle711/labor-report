@@ -9,6 +9,7 @@ description = "CLI tool for generating labor performance reports through my comp
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "debugpy>=1.8.20",
     "dotenv>=0.9.9",
     "matplotlib>=3.10.8",
     "pytest>=9.0.2",

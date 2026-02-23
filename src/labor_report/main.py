@@ -3,7 +3,6 @@
 # Improve speed through asyncio
 # Verify functions of all reports
 # write tests
-# add exclude techs list
 
 import json
 import logging
@@ -51,11 +50,11 @@ api_key_file = ".env"
 URL = "https://rest.method.me/api/v1"
 
 report_types = {
-    "Lost Time": {"customer": ("Accurate - Lost Time"), "item": "labor:"},
-    "Rental": {"customer": ("Accurate Rental"), "item": "labor:"},
-    "Service Warranty": {"customer": ("Accurate Service Warranty"), "item": "labor:"},
+    "Lost Time": {"customer": ("Accurate - Lost Time",), "item": "labor:"},
+    "Rental": {"customer": ("Accurate Rental",), "item": "labor:"},
+    "Service Warranty": {"customer": ("Accurate Service Warranty",), "item": "labor:"},
     "Vehicle Maintenance": {
-        "customer": ("Accurate Vehicle Maintenance"),
+        "customer": ("Accurate Vehicle Maintenance",),
         "item": "labor:",
     },
     "All Internals": {
@@ -81,6 +80,7 @@ report_types = {
     "Parts per labor hour": {"customer": (), "item": "PPLH"},
 }
 
+exclude_list = ["Toro", "Bobby Melton"]
 headers = {"Authorization": ""}
 payload = {}
 
@@ -106,7 +106,7 @@ def initialize_api_key(key_path) -> str:
     return f"APIkey {api_key}"
 
 
-def get_technician_names() -> list:
+def get_technician_names(exclusions: list) -> list:
     with Progress() as progress:
         tech_name_task = progress.add_task(
             "Checking technician names...", total=1)
@@ -117,7 +117,9 @@ def get_technician_names() -> list:
         )
 
         data = response.json()
-        names_list = [name["FullName"] for name in data["value"]]
+        names_list = [
+            name["FullName"] for name in data["value"] if name not in exclusions
+        ]
 
         logger.info(f"Initialized with the following tech names: {names_list}")
         progress.update(tech_name_task, advance=1)
@@ -153,8 +155,10 @@ def get_work_order_count(
 
 
 def generate_customer_filter(customers: tuple, exclude: bool) -> str:
+
     if len(customers) == 0:
         customer_filter_string = ""
+
     else:
         if exclude is False:
             join_param = " or "
@@ -170,7 +174,7 @@ def generate_customer_filter(customers: tuple, exclude: bool) -> str:
         ]
 
         customer_filter_string = join_param.join(customer_filter_list)
-        customer_filter_string = f" and {customer_filter_string}"
+        customer_filter_string = f" and ({customer_filter_string})"
 
     return customer_filter_string
 
@@ -633,21 +637,25 @@ def generate_plot_title() -> str:
     return "TEST STRING"  # TODO: implement title logic
 
 
-def get_report() -> None:
+def get_report(remove_names=exclude_list) -> None:
     """Main entry point to get reports. Gathers user inputs and applies logic
     based on those inputs to get the correct report"""
 
     start_date = get_date("start")
     end_date = get_date("end")
 
-    field_tech_list = get_technician_names()
+    field_tech_list = get_technician_names(exclusions=remove_names)
 
     # Get user input for report type
     report_title = get_report_type(report_types)
 
-    customers, item, exclude_flag, PPLH_flag = resolve_report_type(
-        key=report_title, reports_dict=report_types
-    )
+    report_params = resolve_report_type(
+        key=report_title, reports_dict=report_types)
+
+    customers = report_params[0]
+    item = report_params[1]
+    exclude_flag = report_params[2]
+    PPLH_flag = report_params[3]
 
     customer_filter = generate_customer_filter(customers, exclude=exclude_flag)
 
