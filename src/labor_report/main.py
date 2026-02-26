@@ -8,12 +8,13 @@ import json
 import logging
 import os
 import traceback
+import asyncio
 from calendar import prmonth
 from datetime import date
 from json import JSONDecodeError
 from pathlib import Path
 
-import requests
+import httpx
 from dotenv import load_dotenv
 from rich import print, print_json
 from rich.console import Console
@@ -41,8 +42,10 @@ if not os.path.exists(LOG_FILE_PATH):
     with open(LOG_FILE_PATH, "w") as f:
         pass
 
+
+FORMAT = "%(asctime)s:%(levelname)s:%(message)s"
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename=LOG_FILE_PATH, level=logging.DEBUG)
+logging.basicConfig(filename=LOG_FILE_PATH, format=FORMAT, level=logging.DEBUG)
 
 REPORT_FILE_PATH = os.path.join("data", "reports.json")
 api_key_file = ".env"
@@ -80,7 +83,7 @@ report_types = {
     "Parts per labor hour": {"customer": (), "item": "PPLH"},
 }
 
-exclude_list = ["Toro", "Bobby Melton"]
+exclude_list = ["Toro", "Bobby Melton", "Rod Allie"]
 headers = {"Authorization": ""}
 payload = {}
 
@@ -112,8 +115,8 @@ def get_technician_names(exclusions: list) -> list:
             "Checking technician names...", total=1)
         params = {"skip": 0, "top": 100, "select": "FullName"}
 
-        response = requests.get(
-            f"{URL}/tables/FieldTechnicians", params=params, headers=headers
+        response = httpx.get(
+            f"{URL}/tables/FieldTechnicians", params=params, headers=headers, timeout=20
         )
 
         data = response.json()
@@ -121,7 +124,11 @@ def get_technician_names(exclusions: list) -> list:
             name["FullName"] for name in data["value"] if name not in exclusions
         ]
 
-        logger.info(f"Initialized with the following tech names: {names_list}")
+        logger.info(
+            f"Initialized with the following tech names: {
+                [f'\t{name}\n' for name in names_list]
+            }"
+        )
         progress.update(tech_name_task, advance=1)
 
     return names_list
@@ -136,8 +143,9 @@ def get_work_order_count(
         f"/aggregate($count as TotalWorkOrders)"
     }
 
-    response = requests.get(f"{URL}/tables/Activity",
-                            params=params, headers=headers)
+    response = httpx.get(
+        f"{URL}/tables/Activity", params=params, headers=headers, timeout=20
+    )
 
     if response.status_code == 200:
         data = response.json()
@@ -173,8 +181,8 @@ def generate_customer_filter(customers: tuple, exclude: bool) -> str:
             for customer in customers
         ]
 
-        customer_filter_string = join_param.join(customer_filter_list)
-        customer_filter_string = f" and ({customer_filter_string})"
+        customer_filter_string = f" and ({
+            join_param.join(customer_filter_list)})"
 
     return customer_filter_string
 
@@ -200,8 +208,8 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
 
         while True:
             try:
-                response = requests.get(
-                    f"{URL}/tables/Activity", params=params, headers=headers
+                response = httpx.get(
+                    f"{URL}/tables/Activity", params=params, headers=headers, timeout=20
                 )
 
                 if response.status_code != 200:
@@ -212,13 +220,14 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
                     continue
 
                 data = response.json()
-                work_order_dict_list.extend(data["value"])
 
-                progress.update(task, advance=100)
-                if data["count"] < 100:
+                work_order_dict_list = add_values(work_order_dict_list, data)
+                params, count = paginate_parameters(params, data)
+
+                progress.update(task, advance=count)
+
+                if count < 100:
                     break
-
-                params["skip"] += 100
 
             except Exception:
                 logger.error(
@@ -231,6 +240,22 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
     work_order_list = [item["RecordID"] for item in work_order_dict_list]
 
     return work_order_list
+
+
+def paginate_parameters(params: dict, data: dict) -> tuple[dict, int]:
+    count = 0
+    if "count" in data.keys() and data["count"] == 100:
+        params["skip"] += 100
+        count = 100
+    return params, count
+
+
+def add_values(cached_data: list, response_data: dict) -> list:
+    if "value" in response_data.keys():
+        cached_data.extend(response_data["value"])
+    else:
+        cached_data.extend(response_data)
+    return cached_data
 
 
 def parameterize_wo_list(wo_list: list) -> list:
@@ -263,8 +288,8 @@ def get_items_per_work_order(work_order_num: int) -> list[dict]:
         "orderby": "ActivityNo asc",
     }
 
-    response = requests.get(
-        f"{URL}/tables/ActivityJobItems", params=params, headers=headers
+    response = httpx.get(
+        f"{URL}/tables/ActivityJobItems", params=params, headers=headers, timeout=20
     )
 
     data = response.json()
@@ -294,8 +319,11 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
 
             try:
                 while True:
-                    response = requests.get(
-                        f"{URL}/tables/ActivityJobItems", params=params, headers=headers
+                    response = httpx.get(
+                        f"{URL}/tables/ActivityJobItems",
+                        params=params,
+                        headers=headers,
+                        timeout=20,
                     )
 
                     if response.status_code != 200:
@@ -309,17 +337,11 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
 
                     data = response.json()
 
-                    if "value" in data:
-                        data_list.extend(data["value"])
+                    data_list = add_values(data_list, data)
+                    params, count = paginate_parameters(params, data)
+                    progress.update(task, advance=1)
 
-                        progress.update(task, advance=1)
-                        if data["count"] < 100:
-                            break
-
-                        params["skip"] += 100
-
-                    else:
-                        data_list.extend(data)
+                    if count < 100:
                         break
 
             except Exception:
