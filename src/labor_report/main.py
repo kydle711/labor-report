@@ -102,7 +102,7 @@ def initialize_api_key(key_path) -> str:
         if api_key == "q":
             quit()
 
-        with open("key_path", "w") as api_file:
+        with open(key_path, "w") as api_file:
             key_variable = f"MY_API_KEY={api_key}"
             api_file.write(key_variable)
 
@@ -136,9 +136,8 @@ def get_technician_names(exclusions: list) -> list:
     return names_list
 
 
-def get_work_order_count(
-    start: str, end: str, customer_filter: str | None
-) -> int | None:
+def get_work_order_count(start: str, end: str, customer_filter: str) -> int:
+    total = 0
     params = {
         "apply": f"filter(ActualCompletedDate ge '{start}T00:00:00' and "
         f"ActualCompletedDate lt '{end}T00:00:00'{customer_filter})"
@@ -151,17 +150,14 @@ def get_work_order_count(
 
     if response.status_code == 200:
         data = response.json()
-        total = int(data["value"][0]["TotalWorkOrders"])
+        total += int(data["value"][0]["TotalWorkOrders"])
         print(
             f"[bold green]Total Work Orders found:[/bold green][bold yellow] {
                 total
             }[/bold yellow]"
         )
 
-        return total
-
-    else:
-        return None
+    return total
 
 
 def generate_customer_filter(customers: tuple, exclude: bool) -> str:
@@ -208,13 +204,15 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
             "Getting work order numbers...", total=total_work_orders
         )
 
-        while True:
+        attempts = 0
+        while attempts < 5:
             try:
                 response = httpx.get(
                     f"{URL}/tables/Activity", params=params, headers=headers, timeout=20
                 )
 
                 if response.status_code != 200:
+                    attempts += 1
                     logger.error(
                         f"Failed request! {response.status_code}{
                             response.content}"
@@ -232,6 +230,7 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
                     break
 
             except Exception:
+                attempts += 1
                 logger.error(
                     f"Error in get_work_orders_by_range with the"
                     f"following traceback{traceback.format_exc()}\n"
@@ -319,8 +318,9 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
                 "orderby": "ActivityNo asc",
             }
 
-            try:
-                while True:
+            attempts = 0
+            while attempts < 5:
+                try:
                     response = httpx.get(
                         f"{URL}/tables/ActivityJobItems",
                         params=params,
@@ -329,6 +329,7 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
                     )
 
                     if response.status_code != 200:
+                        attempts += 1
                         logger.debug(
                             f"Failed request in get_job_items: {
                                 response.status_code}:"
@@ -346,11 +347,13 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
                     if count < 100:
                         break
 
-            except Exception:
-                logger.error(
-                    f"Error get_job_items: {traceback.format_exc()}\nParams: {
-                        params}"
-                )
+                except Exception:
+                    attempts += 1
+                    logger.error(
+                        f"Error get_job_items: {traceback.format_exc()}\nParams: {
+                            params
+                        }"
+                    )
 
     print(
         f"[bold yellow]Number of total job items[/] [bold green] {len(data_list)}[/]")
@@ -465,7 +468,7 @@ def tally_labor_items(items: list, item_filter: str, tech_names: list) -> dict:
             try:
                 item_name = job_item["Item"]
 
-                if item_name and item_filter in item_name:
+                if item_filter in item_name:
                     tech_name_key = item_name.removeprefix(item_filter).strip()
                     logger.debug(f"\tItem: {item_name}\nTech: {
                                  tech_name_key}\n")
@@ -520,7 +523,7 @@ def divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> d
         for name in labor_dict.keys():
             if labor_dict[name] > 0:
                 brake_cleaner_dict[name] = total * \
-                    (total_hours / labor_dict[name])
+                    (labor_dict[name] / total_hours)
 
     return brake_cleaner_dict
 
