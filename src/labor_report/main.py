@@ -121,7 +121,9 @@ def get_technician_names(exclusions: list) -> list:
 
         data = response.json()
         names_list = [
-            name["FullName"] for name in data["value"] if name not in exclusions
+            name["FullName"]
+            for name in data["value"]
+            if name["FullName"] not in exclusions
         ]
 
         logger.info(
