@@ -465,9 +465,8 @@ def tally_labor_items(items: list, item_filter: str, tech_names: list) -> dict:
 
                 if item_name and item_filter in item_name:
                     tech_name_key = item_name.removeprefix(item_filter).strip()
-                    logger.debug(
-                        f"Item name: {item_name}\nTech name: {tech_name_key}\n"
-                    )
+                    logger.debug(f"\tItem: {item_name}\nTech: {
+                                 tech_name_key}\n")
 
                     if tech_name_key in tech_names:
                         labor_dict[tech_name_key] += job_item["Qty"]
@@ -478,7 +477,7 @@ def tally_labor_items(items: list, item_filter: str, tech_names: list) -> dict:
 
             except TypeError:
                 logger.error(
-                    f"Error in tally_labor_items: {traceback.format_exc()}\n"
+                    f"Error: tally_labor_items: {traceback.format_exc()}\n"
                     f"Job Item: {job_item} -- Labor Filter: {item_filter}"
                 )
 
@@ -538,11 +537,10 @@ def count_brake_cleaners(tech_names: list, work_orders: list, item_key: str) -> 
                 )
 
                 logger.debug(
-                    f"Work Order: {work_order}\n"
-                    f"Job Items: {job_items}\n"
-                    f"brake cleaner dict for this WO: {
-                        brake_cleaner_per_work_order_dict
-                    }\n"
+                    f"\tWork Order: {work_order}\n"
+                    f"\tJob Items: {job_items}\n"
+                    f"\tbrake cleaner dict: {
+                        brake_cleaner_per_work_order_dict}\n"
                 )
 
                 for tech in tech_names:
