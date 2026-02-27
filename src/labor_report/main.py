@@ -111,7 +111,7 @@ def initialize_api_key(key_path) -> str:
 
 def get_technician_names(exclusions: list) -> list:
     with Progress() as progress:
-        tech_name_task = progress.add_task(
+        progress_bar = progress.add_task(
             "Checking technician names...", total=1)
         params = {"skip": 0, "top": 100, "select": "FullName"}
 
@@ -131,7 +131,7 @@ def get_technician_names(exclusions: list) -> list:
                 [f'\t{name}\n' for name in names_list]
             }"
         )
-        progress.update(tech_name_task, advance=1)
+        progress.update(progress_bar, advance=1)
 
     return names_list
 
@@ -161,7 +161,7 @@ def get_work_order_count(start: str, end: str, customer_filter: str) -> int:
 
 
 def generate_customer_filter(customers: tuple, exclude: bool) -> str:
-
+    """method.me API docs for info on parameters"""
     if len(customers) == 0:
         customer_filter_string = ""
 
@@ -186,7 +186,7 @@ def generate_customer_filter(customers: tuple, exclude: bool) -> str:
 
 
 async def fetch_work_orders_by_range(
-    start: str, end: str, customer_filter: str, client: httpx.AsyncClient
+    client: httpx.AsyncClient, start: str, end: str, customer_filter: str
 ) -> list:
     work_order_dict_list = []
 
@@ -202,7 +202,7 @@ async def fetch_work_orders_by_range(
     total_work_orders = get_work_order_count(start, end, customer_filter)
 
     with Progress() as progress:
-        task = progress.add_task(
+        progress_bar = progress.add_task(
             "Getting work order numbers...", total=total_work_orders
         )
 
@@ -226,7 +226,7 @@ async def fetch_work_orders_by_range(
                 work_order_dict_list = add_values(work_order_dict_list, data)
                 params, count = paginate_parameters(params, data)
 
-                progress.update(task, advance=count)
+                progress.update(progress_bar, advance=count)
 
                 if count < 100:
                     break
@@ -240,7 +240,7 @@ async def fetch_work_orders_by_range(
                     f"Params: {params}"
                 )
 
-        progress.update(task, completed=total_work_orders)
+        progress.update(progress_bar, completed=total_work_orders)
 
     work_order_list = [item["RecordID"] for item in work_order_dict_list]
 
@@ -284,45 +284,30 @@ def parameterize_wo_list(wo_list: list) -> list:
     return param_list
 
 
-def get_items_per_work_order(work_order_num: int) -> list[dict]:
-    params = {
-        "skip": 0,
-        "top": 100,
-        "select": "ActivityNo, Item, ItemDescription, Qty, Amount",
-        "filter": f"ActivityNo eq '{work_order_num}'",
-        "orderby": "ActivityNo asc",
-    }
-
-    response = httpx.get(
-        f"{URL}/tables/ActivityJobItems", params=params, headers=headers, timeout=20
-    )
-
-    data = response.json()
-    if "value" in data:
-        data = data["value"]
-
-    logger.debug(f"get_items_per_work_order - DATA: {data}")
-    return data
-
-
-async def fetch_items_by_filter(
-    work_order_nums: list,
-    item_filter: str,
+async def fetch_items(
     client: httpx.AsyncClient,
+    work_order_nums: list,
+    item_filter: str | None = None,
 ) -> list[dict]:
     data_list = []
     param_list = parameterize_wo_list(work_order_nums)
 
-    with Progress() as progress:
-        task = progress.add_task(
-            "Fetching work order items...", total=len(param_list))
+    if item_filter:
+        filter_string = f"contains(Item, '{item_filter}') and "
+    else:
+        filter_string = ""
 
-        for work_order_parameter in param_list:
+    with Progress() as progress:
+        progress_bar = progress.add_task(
+            "Fetching work order items...", total=len(param_list)
+        )
+
+        for work_orders_parameter in param_list:
             params = {
                 "skip": 0,
                 "top": 100,
-                "select": "ActivityNo, Item, Qty",
-                "filter": f"contains(Item, '{item_filter}') and {work_order_parameter}",
+                "select": "ActivityNo, Item, ItemDescription, Qty, Amount",
+                "filter": f"{filter_string}{work_orders_parameter}",
                 "orderby": "ActivityNo asc",
             }
 
@@ -350,7 +335,7 @@ async def fetch_items_by_filter(
 
                     data_list = add_values(data_list, data)
                     params, count = paginate_parameters(params, data)
-                    progress.update(task, advance=1)
+                    progress.update(progress_bar, advance=1)
 
                     if count < 100:
                         break
@@ -366,7 +351,14 @@ async def fetch_items_by_filter(
     return data_list
 
 
-def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
+def _divide_item_amounts_per_tech(tech_names: list, items: list) -> dict:
+    """Helps calculate parts per labor hour for techs. Given work order 12345,
+    if tech A has 5.0 hrs of labor, and tech B has 10.0 hrs of labor, tech B
+    will receive credit for 2/3 of the value of non-labor items, while tech A
+    will receive credit for 1/3. The full parts per labor hour is calculated
+    in this function, and then the mean of all work hours will be calculated
+    in the calling function."""
+
     total_amount = 0
 
     logger.debug(
@@ -384,7 +376,7 @@ def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
         if not item_name:
             continue
 
-        # If 'labor' in item name, extract tech name, then add
+        # If 'labor:' in item name, extract tech name, then add
         # tech and hrs to dict
         if tag in item_name:
             tech_name = item_name.removeprefix(tag).strip()
@@ -413,26 +405,34 @@ def divide_item_amounts_per_tech(items: list, tech_names: list) -> dict:
     return pplh_per_wo_dict
 
 
-def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
+def sort_items_by_work_order(items: list) -> dict[str, list]:
+    wo_items = {}
+    for item in items:
+        if "ActivityNo" in item:
+            wo_num = item["ActivityNo"]
+            if wo_num in wo_items.keys():
+                wo_items[wo_num].append(item)
+            else:
+                wo_items[wo_num] = [item]
+
+    return wo_items
+
+
+def calculate_parts_per_labor_hour(
+    tech_names: list, job_items: dict[str, list]
+) -> dict:
     pplh_raw_dict = {name: {"total": 0, "divisor": 0} for name in tech_names}
     pplh_dict = {name: 0.0 for name in tech_names}
 
     with Progress() as progress:
-        task = progress.add_task(
-            "Calculating parts per labor hour...", total=len(work_orders)
+        progress_bar = progress.add_task(
+            "Calculating parts per labor hour...", total=len(job_items)
         )
 
-        for work_order in work_orders:
+        for work_order in job_items.keys():
             try:
-                job_items = get_items_per_work_order(work_order)
-                pplh_per_work_order_dict = divide_item_amounts_per_tech(
-                    job_items, tech_names
-                )
-
-                logger.debug(
-                    f"Work Order: {work_order}\n"
-                    f"Job Items: {job_items}\n"
-                    f"pplh dict for this WO: {pplh_per_work_order_dict}"
+                pplh_per_work_order_dict = _divide_item_amounts_per_tech(
+                    tech_names, job_items[work_order]
                 )
 
                 for tech in tech_names:
@@ -442,11 +442,10 @@ def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
 
             except Exception:
                 logger.error(
-                    f"calculate_parts_per_labor_hour ERROR: {
+                    f"calculate_parts_per_labor_hour error: {
                         traceback.format_exc()}"
                 )
-
-            progress.update(task, advance=1)
+                progress.update(progress_bar, advance=1)
 
     for name in tech_names:
         total = pplh_raw_dict[name]["total"]
@@ -463,10 +462,10 @@ def calculate_parts_per_labor_hour(work_orders: list, tech_names: list) -> dict:
     return pplh_dict
 
 
-def tally_labor_items(items: list, item_filter: str, tech_names: list) -> dict:
+def tally_labor_items(tech_names: list, items: list, item_filter: str) -> dict:
     labor_dict = {name: 0 for name in tech_names}
     with Progress() as progress:
-        task = progress.add_task(
+        progress_bar = progress.add_task(
             f"Counting {item_filter}...", total=len(items))
         logger.debug(f"Number of labor items: {len(items)}\n")
         for job_item in items:
@@ -490,12 +489,12 @@ def tally_labor_items(items: list, item_filter: str, tech_names: list) -> dict:
                     f"Job Item: {job_item} -- Labor Filter: {item_filter}"
                 )
 
-            progress.update(task, advance=1)
+            progress.update(progress_bar, advance=1)
 
     return labor_dict
 
 
-def divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> dict:
+def _divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> dict:
     total = 0
 
     logger.debug(
@@ -534,24 +533,19 @@ def divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> d
     return brake_cleaner_dict
 
 
-def count_brake_cleaners(tech_names: list, work_orders: list, item_key: str) -> dict:
+def count_brake_cleaners(
+    tech_names: list, job_items: dict[str, list], item_key: str
+) -> dict:
     brake_cleaner_dict = {name: 0 for name in tech_names}
     with Progress() as progress:
-        task = progress.add_task(
-            "Counting brake cleaners...", total=len(work_orders))
+        progress_bar = progress.add_task(
+            "Counting brake cleaners...", total=len(job_items)
+        )
 
-        for work_order in work_orders:
+        for work_order in job_items.keys():
             try:
-                job_items = get_items_per_work_order(work_order)
-                brake_cleaner_per_work_order_dict = divide_brake_cleaners_per_tech(
-                    job_items, tech_names, item_key
-                )
-
-                logger.debug(
-                    f"\tWork Order: {work_order}\n"
-                    f"\tJob Items: {job_items}\n"
-                    f"\tbrake cleaner dict: {
-                        brake_cleaner_per_work_order_dict}\n"
+                brake_cleaner_per_work_order_dict = _divide_brake_cleaners_per_tech(
+                    job_items[work_order], tech_names, item_key
                 )
 
                 for tech in tech_names:
@@ -561,7 +555,7 @@ def count_brake_cleaners(tech_names: list, work_orders: list, item_key: str) -> 
                 logger.error(f"count_brake_cleaners error: {
                              traceback.format_exc()}")
 
-            progress.update(task, advance=1)
+            progress.update(progress_bar, advance=1)
 
     for name in brake_cleaner_dict.keys():
         brake_cleaner_dict[name] = round(brake_cleaner_dict[name])
@@ -692,7 +686,11 @@ def get_report(remove_names=exclude_list) -> None:
 
     async def main_async_fetch(coroutine_object, *args, **kwargs):
         async with httpx.AsyncClient() as client:
-            return await coroutine_object(*args, **kwargs, client=client)
+            return await coroutine_object(
+                client,
+                *args,
+                **kwargs,
+            )
 
     work_orders = asyncio.run(
         main_async_fetch(
@@ -701,17 +699,20 @@ def get_report(remove_names=exclude_list) -> None:
     )
 
     if PPLH_flag:
+        job_items = asyncio.run(main_async_fetch(fetch_items, work_orders))
+
         report_dict = calculate_parts_per_labor_hour(
-            work_orders, field_tech_list)
+            field_tech_list, job_items)
 
     elif item == "brake cleaner":
-        report_dict = count_brake_cleaners(field_tech_list, work_orders, item)
+        job_items = asyncio.run(main_async_fetch(
+            fetch_items, work_orders, item))
+        report_dict = count_brake_cleaners(field_tech_list, job_items, item)
 
     else:
-        job_items = asyncio.run(
-            main_async_fetch(fetch_items_by_filter, work_orders, item)
-        )
-        report_dict = tally_labor_items(job_items, item, field_tech_list)
+        job_items = asyncio.run(main_async_fetch(
+            fetch_items, work_orders, item))
+        report_dict = tally_labor_items(field_tech_list, job_items, item)
 
     report_name = create_report_name(start_date, end_date, report_title)
     write_report_to_file(report_dict, report_name)
