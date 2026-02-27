@@ -185,7 +185,9 @@ def generate_customer_filter(customers: tuple, exclude: bool) -> str:
     return customer_filter_string
 
 
-def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list:
+async def fetch_work_orders_by_range(
+    start: str, end: str, customer_filter: str, client: httpx.AsyncClient
+) -> list:
     work_order_dict_list = []
 
     params = {
@@ -207,7 +209,7 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
         attempts = 0
         while attempts < 5:
             try:
-                response = httpx.get(
+                response = await client.get(
                     f"{URL}/tables/Activity", params=params, headers=headers, timeout=20
                 )
 
@@ -237,6 +239,8 @@ def get_work_orders_by_range(start: str, end: str, customer_filter: str) -> list
                     f"Response: {response.content}\n"
                     f"Params: {params}"
                 )
+
+        progress.update(task, completed=total_work_orders)
 
     work_order_list = [item["RecordID"] for item in work_order_dict_list]
 
@@ -301,13 +305,17 @@ def get_items_per_work_order(work_order_num: int) -> list[dict]:
     return data
 
 
-def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
+async def fetch_items_by_filter(
+    work_order_nums: list,
+    item_filter: str,
+    client: httpx.AsyncClient,
+) -> list[dict]:
     data_list = []
-    param_list = parameterize_wo_list(work_order_num_list)
+    param_list = parameterize_wo_list(work_order_nums)
 
     with Progress() as progress:
         task = progress.add_task(
-            "Getting work order items...", total=len(param_list))
+            "Fetching work order items...", total=len(param_list))
 
         for work_order_parameter in param_list:
             params = {
@@ -321,7 +329,7 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
             attempts = 0
             while attempts < 5:
                 try:
-                    response = httpx.get(
+                    response = await client.get(
                         f"{URL}/tables/ActivityJobItems",
                         params=params,
                         headers=headers,
@@ -331,7 +339,7 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
                     if response.status_code != 200:
                         attempts += 1
                         logger.debug(
-                            f"Failed request in get_job_items: {
+                            f"Failed request in get_items: {
                                 response.status_code}:"
                             f"{response.content}\n"
                             f"Params: {params}"
@@ -350,13 +358,11 @@ def get_job_items_by_filter(work_order_num_list, item_filter) -> list[dict]:
                 except Exception:
                     attempts += 1
                     logger.error(
-                        f"Error get_job_items: {traceback.format_exc()}\nParams: {
-                            params
-                        }"
+                        f"Error get_items: {traceback.format_exc()}\nParams: {
+                            params}"
                     )
 
-    print(
-        f"[bold yellow]Number of total job items[/] [bold green] {len(data_list)}[/]")
+    print(f"[bold yellow]Total job items:[/] [bold green] {len(data_list)}[/]")
     return data_list
 
 
@@ -478,13 +484,13 @@ def tally_labor_items(items: list, item_filter: str, tech_names: list) -> dict:
 
                         logger.debug(f"Adding: {job_item['Qty']}")
 
-                progress.update(task, advance=1)
-
             except TypeError:
                 logger.error(
                     f"Error: tally_labor_items: {traceback.format_exc()}\n"
                     f"Job Item: {job_item} -- Labor Filter: {item_filter}"
                 )
+
+            progress.update(task, advance=1)
 
     return labor_dict
 
@@ -684,8 +690,15 @@ def get_report(remove_names=exclude_list) -> None:
 
     customer_filter = generate_customer_filter(customers, exclude=exclude_flag)
 
-    work_orders = get_work_orders_by_range(
-        start_date, end_date, customer_filter)
+    async def main_async_fetch(coroutine_object, *args, **kwargs):
+        async with httpx.AsyncClient() as client:
+            return await coroutine_object(*args, **kwargs, client=client)
+
+    work_orders = asyncio.run(
+        main_async_fetch(
+            fetch_work_orders_by_range, start_date, end_date, customer_filter
+        )
+    )
 
     if PPLH_flag:
         report_dict = calculate_parts_per_labor_hour(
@@ -695,7 +708,9 @@ def get_report(remove_names=exclude_list) -> None:
         report_dict = count_brake_cleaners(field_tech_list, work_orders, item)
 
     else:
-        job_items = get_job_items_by_filter(work_orders, item)
+        job_items = asyncio.run(
+            main_async_fetch(fetch_items_by_filter, work_orders, item)
+        )
         report_dict = tally_labor_items(job_items, item, field_tech_list)
 
     report_name = create_report_name(start_date, end_date, report_title)
