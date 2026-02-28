@@ -24,6 +24,6 @@
 - Testing
 - More report types
 
-## API
+## API Docs
 
-- See [link text](https://developer.method.me)
+- See [Method API](https://developer.method.me)
