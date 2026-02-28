@@ -46,7 +46,7 @@ if not os.path.exists(LOG_FILE_PATH):
 
 FORMAT = "%(asctime)s:%(levelname)s:%(message)s"
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename=LOG_FILE_PATH, format=FORMAT, level=logging.DEBUG)
+logging.basicConfig(filename=LOG_FILE_PATH, format=FORMAT, level=logging.ERROR)
 
 REPORT_FILE_PATH = os.path.join("data", "reports.json")
 api_key_file = ".env"
@@ -93,7 +93,7 @@ console = Console()
 
 def _display_sleep_progress():
     for _ in track(
-        range(60),
+        range(30),
         "API is unhappy with the number of requests 😠 sleeping...",
         transient=True,
     ):
@@ -226,12 +226,12 @@ async def fetch_work_orders_by_range(
                 if response.status_code != 200:
                     if response.status_code == 429:
                         _display_sleep_progress()
-                else:
-                    attempts += 1
-                    logger.error(
-                        f"Failed request! {response.status_code}{
-                            response.content}"
-                    )
+                    else:
+                        attempts += 1
+                        logger.error(
+                            f"Failed request! {response.status_code}{
+                                response.content}"
+                        )
                     continue
 
                 data = response.json()
@@ -260,6 +260,19 @@ async def fetch_work_orders_by_range(
     return work_order_list
 
 
+def sort_items_by_work_order(items: list) -> dict[str, list]:
+    wo_items = {}
+    for item in items:
+        if "ActivityNo" in item:
+            wo_num = item["ActivityNo"]
+            if wo_num in wo_items.keys():
+                wo_items[wo_num].append(item)
+            else:
+                wo_items[wo_num] = [item]
+
+    return wo_items
+
+
 def paginate_parameters(params: dict, data: dict) -> tuple[dict, int]:
     count = 0
     if "count" in data.keys() and data["count"] == 100:
@@ -285,7 +298,7 @@ def parameterize_wo_list(wo_list: list) -> list:
         filter_list.append(f"ActivityNo eq '{num}'")
 
     total = len(wo_list)
-    slice_size = 10
+    slice_size = 35
     split_list = [filter_list[i: i + slice_size]
                   for i in range(0, total, slice_size)]
     param_list = []
@@ -409,46 +422,36 @@ def _divide_item_amounts_per_tech(tech_names: list, items: list) -> dict:
 
     proportion_dict = {name: 0.0 for name in labor_dict.keys()}
 
-    for name in tech_names:
-        if labor_dict[name] > 0 and total_hours > 0:
-            # Divide each tech's hours by total hours for a percentage
-            proportion_dict[name] = labor_dict[name] / total_hours
+    # If total hours and hours for tech name are not 0
+    if total_hours:
+        for name in tech_names:
+            if labor_dict[name]:
+                # Divide each tech's hours by total hours for a percentage
+                proportion_dict[name] = labor_dict[name] / total_hours
 
+    # total value * this tech's proportion of labor / this tech's labor amount
     pplh_per_wo_dict = {
-        name: total_amount * proportion_dict[name] for name in tech_names
+        name: total_amount * proportion_dict[name] / labor_dict[name]
+        for name in tech_names
     }
 
     return pplh_per_wo_dict
 
 
-def sort_items_by_work_order(items: list) -> dict[str, list]:
-    wo_items = {}
-    for item in items:
-        if "ActivityNo" in item:
-            wo_num = item["ActivityNo"]
-            if wo_num in wo_items.keys():
-                wo_items[wo_num].append(item)
-            else:
-                wo_items[wo_num] = [item]
-
-    return wo_items
-
-
-def calculate_parts_per_labor_hour(
-    tech_names: list, job_items: dict[str, list]
-) -> dict:
+def calculate_parts_per_labor_hour(tech_names: list, job_items: list[dict]) -> dict:
     pplh_raw_dict = {name: {"total": 0, "divisor": 0} for name in tech_names}
     pplh_dict = {name: 0.0 for name in tech_names}
+    sorted_items = sort_items_by_work_order(job_items)
 
     with Progress() as progress:
         progress_bar = progress.add_task(
-            "Calculating parts per labor hour...", total=len(job_items)
+            "Calculating parts per labor hour...", total=len(sorted_items)
         )
 
-        for work_order in job_items.keys():
+        for work_order in sorted_items.keys():
             try:
                 pplh_per_work_order_dict = _divide_item_amounts_per_tech(
-                    tech_names, job_items[work_order]
+                    tech_names, sorted_items[work_order]
                 )
 
                 for tech in tech_names:
@@ -461,7 +464,8 @@ def calculate_parts_per_labor_hour(
                     f"calculate_parts_per_labor_hour error: {
                         traceback.format_exc()}"
                 )
-                progress.update(progress_bar, advance=1)
+
+            progress.update(progress_bar, advance=1)
 
     for name in tech_names:
         total = pplh_raw_dict[name]["total"]
@@ -734,7 +738,7 @@ def get_report(remove_names=exclude_list) -> None:
         f"start date: {start_date}\n"
         f"end date: {end_date}\n"
         f"field_tech_list: {field_tech_list}\n"
-        f"report_name: {report_name}\n"
+        f"report_params: {report_params}\n"
         f"work_orders: {work_orders}\n"
         f"report_dict: {report_dict}\n"
         f"customers: {customers}\n"
@@ -910,10 +914,6 @@ def main():
 
     while True:
         main_menu()
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":
