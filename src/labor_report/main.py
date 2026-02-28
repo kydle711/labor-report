@@ -93,7 +93,7 @@ console = Console()
 
 def _display_sleep_progress():
     for _ in track(
-        range(30),
+        range(60),
         "API is unhappy with the number of requests 😠 sleeping...",
         transient=True,
     ):
@@ -162,10 +162,7 @@ def get_work_order_count(start: str, end: str, customer_filter: str) -> int:
         data = response.json()
         total += int(data["value"][0]["TotalWorkOrders"])
         print(
-            f"[bold green]Total Work Orders found:[/bold green][bold yellow] {
-                total
-            }[/bold yellow]"
-        )
+            f"[bold purple]Total Work Orders found:[/][bold orange] {total}[/]")
 
     return total
 
@@ -298,7 +295,7 @@ def parameterize_wo_list(wo_list: list) -> list:
         filter_list.append(f"ActivityNo eq '{num}'")
 
     total = len(wo_list)
-    slice_size = 35
+    slice_size = 70
     split_list = [filter_list[i: i + slice_size]
                   for i in range(0, total, slice_size)]
     param_list = []
@@ -325,8 +322,7 @@ async def fetch_items(
 
     with Progress() as progress:
         progress_bar = progress.add_task(
-            "Fetching work order items...", total=len(param_list)
-        )
+            "Fetching job items...", total=len(param_list))
 
         for work_orders_parameter in param_list:
             params = {
@@ -364,7 +360,6 @@ async def fetch_items(
 
                     data_list = add_values(data_list, data)
                     params, count = paginate_parameters(params, data)
-                    progress.update(progress_bar, advance=1)
 
                     if count < 100:
                         break
@@ -376,7 +371,12 @@ async def fetch_items(
                             params}"
                     )
 
-    print(f"[bold yellow]Total job items:[/] [bold green] {len(data_list)}[/]")
+            progress.update(progress_bar, advance=1)
+
+    if attempts == 5:
+        logger.error("Scan incomplete after 5 failed attempts")
+    print(
+        f"[bold purple]Total job items:[/] [bold orange] {len(data_list)}[/]")
     return data_list
 
 
@@ -420,20 +420,17 @@ def _divide_item_amounts_per_tech(tech_names: list, items: list) -> dict:
 
     total_hours = sum(labor_dict.values())
 
-    proportion_dict = {name: 0.0 for name in labor_dict.keys()}
+    pplh_per_wo_dict = {name: 0.0 for name in labor_dict.keys()}
 
     # If total hours and hours for tech name are not 0
     if total_hours:
         for name in tech_names:
             if labor_dict[name]:
                 # Divide each tech's hours by total hours for a percentage
-                proportion_dict[name] = labor_dict[name] / total_hours
-
-    # total value * this tech's proportion of labor / this tech's labor amount
-    pplh_per_wo_dict = {
-        name: total_amount * proportion_dict[name] / labor_dict[name]
-        for name in tech_names
-    }
+                # Then calculate the parts per labor hour for this work order
+                proportion = labor_dict[name] / total_hours
+                pplh_per_wo_dict[name] = total_amount * \
+                    proportion / labor_dict[name]
 
     return pplh_per_wo_dict
 
@@ -554,18 +551,19 @@ def _divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> 
 
 
 def count_brake_cleaners(
-    tech_names: list, job_items: dict[str, list], item_key: str
+    tech_names: list, job_items: list[dict], item_key: str
 ) -> dict:
     brake_cleaner_dict = {name: 0 for name in tech_names}
+    sorted_list = sort_items_by_work_order(job_items)
     with Progress() as progress:
         progress_bar = progress.add_task(
-            "Counting brake cleaners...", total=len(job_items)
+            "Counting brake cleaners...", total=len(sorted_list)
         )
 
-        for work_order in job_items.keys():
+        for work_order in sorted_list.keys():
             try:
                 brake_cleaner_per_work_order_dict = _divide_brake_cleaners_per_tech(
-                    job_items[work_order], tech_names, item_key
+                    sorted_list[work_order], tech_names, item_key
                 )
 
                 for tech in tech_names:
@@ -733,6 +731,10 @@ def get_report(remove_names=exclude_list) -> None:
         job_items = asyncio.run(main_async_fetch(
             fetch_items, work_orders, item))
         report_dict = tally_labor_items(field_tech_list, job_items, item)
+
+    report_name = create_report_name(start_date, end_date, report_title)
+    write_report_to_file(report_dict, report_name)
+
     logger.debug(
         f"get_report local vars:\n "
         f"start date: {start_date}\n"
