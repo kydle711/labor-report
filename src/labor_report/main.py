@@ -4,6 +4,7 @@
 # Verify functions of all reports
 # write tests
 
+import time
 import json
 import logging
 import os
@@ -18,7 +19,7 @@ import httpx
 from dotenv import load_dotenv
 from rich import print, print_json
 from rich.console import Console
-from rich.progress import Progress
+from rich.progress import Progress, track
 from rich.table import Table
 
 from labor_report.plots import plot_report_data
@@ -88,6 +89,15 @@ headers = {"Authorization": ""}
 payload = {}
 
 console = Console()
+
+
+def _display_sleep_progress():
+    for _ in track(
+        range(60),
+        "API is unhappy with the number of requests 😠 sleeping...",
+        transient=True,
+    ):
+        time.sleep(1)
 
 
 def initialize_api_key(key_path) -> str:
@@ -214,6 +224,9 @@ async def fetch_work_orders_by_range(
                 )
 
                 if response.status_code != 200:
+                    if response.status_code == 429:
+                        _display_sleep_progress()
+                else:
                     attempts += 1
                     logger.error(
                         f"Failed request! {response.status_code}{
@@ -322,13 +335,16 @@ async def fetch_items(
                     )
 
                     if response.status_code != 200:
-                        attempts += 1
-                        logger.debug(
-                            f"Failed request in get_items: {
-                                response.status_code}:"
-                            f"{response.content}\n"
-                            f"Params: {params}"
-                        )
+                        if response.status_code == 429:
+                            _display_sleep_progress()
+                        else:
+                            attempts += 1
+                            logger.debug(
+                                f"Failed request in get_items: {
+                                    response.status_code}:"
+                                f"{response.content}\n"
+                                f"Params: {params}"
+                            )
                         continue
 
                     data = response.json()
@@ -713,10 +729,6 @@ def get_report(remove_names=exclude_list) -> None:
         job_items = asyncio.run(main_async_fetch(
             fetch_items, work_orders, item))
         report_dict = tally_labor_items(field_tech_list, job_items, item)
-
-    report_name = create_report_name(start_date, end_date, report_title)
-    write_report_to_file(report_dict, report_name)
-
     logger.debug(
         f"get_report local vars:\n "
         f"start date: {start_date}\n"
@@ -898,6 +910,10 @@ def main():
 
     while True:
         main_menu()
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
