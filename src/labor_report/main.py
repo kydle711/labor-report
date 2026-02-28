@@ -1,6 +1,4 @@
 # TODO:
-# Improve y axis labels
-# Improve speed through asyncio
 # Verify functions of all reports
 # write tests
 
@@ -54,12 +52,21 @@ api_key_file = ".env"
 URL = "https://rest.method.me/api/v1"
 
 report_types = {
-    "Lost Time": {"customer": ("Accurate - Lost Time",), "item": "labor:"},
-    "Rental": {"customer": ("Accurate Rental",), "item": "labor:"},
-    "Service Warranty": {"customer": ("Accurate Service Warranty",), "item": "labor:"},
+    "Lost Time": {
+        "customer": ("Accurate - Lost Time",),
+        "item": "labor:",
+        "ylabel": "Hours",
+    },
+    "Rental": {"customer": ("Accurate Rental",), "item": "labor:", "ylabel": "Hours"},
+    "Service Warranty": {
+        "customer": ("Accurate Service Warranty",),
+        "item": "labor:",
+        "ylabel": "Hours",
+    },
     "Vehicle Maintenance": {
         "customer": ("Accurate Vehicle Maintenance",),
         "item": "labor:",
+        "ylabel": "Hours",
     },
     "All Internals": {
         "customer": (
@@ -69,6 +76,7 @@ report_types = {
             "Accurate Vehicle Maintenance",
         ),
         "item": "labor:",
+        "ylabel": "Hours",
     },
     "All Customers": {
         "customer": (
@@ -78,10 +86,23 @@ report_types = {
             "Accurate Vehicle Maintenance",
         ),
         "item": "labor:",
+        "ylabel": "Hours",
     },
-    "Brake cleaner sales": {"customer": (), "item": "brake cleaner"},
-    "Service Calls": {"customer": (), "item": "Service Call:Service Call - "},
-    "Parts per labor hour": {"customer": (), "item": "PPLH"},
+    "Brake cleaner sales": {
+        "customer": (),
+        "item": "brake cleaner",
+        "ylabel": "Units Sold",
+    },
+    "Service Calls": {
+        "customer": (),
+        "item": "Service Call:Service Call - ",
+        "ylabel": "Service Call Fees",
+    },
+    "Parts per labor hour": {
+        "customer": (),
+        "item": "PPLH",
+        "ylabel": "($) Per Labor Hour",
+    },
 }
 
 exclude_list = ["Toro", "Bobby Melton", "Rod Allie"]
@@ -103,7 +124,7 @@ def _display_sleep_progress():
 def initialize_api_key(key_path) -> str:
     load_dotenv(dotenv_path=key_path)
 
-    api_key = os.getenv("MY_API_KEY")
+    api_key = os.getenv("METHOD_API_KEY")
 
     if api_key is None:
         api_key = input(
@@ -113,7 +134,7 @@ def initialize_api_key(key_path) -> str:
             quit()
 
         with open(key_path, "w") as api_file:
-            key_variable = f"MY_API_KEY={api_key}"
+            key_variable = f"METHOD_API_KEY={api_key}"
             api_file.write(key_variable)
 
     return f"APIkey {api_key}"
@@ -676,10 +697,6 @@ def create_report_name(start: str, end: str, report_type: str) -> str:
     return f"{start}:{end}::{report_type}"
 
 
-def generate_plot_title() -> str:
-    return "TEST STRING"  # TODO: implement title logic
-
-
 def get_report(remove_names=exclude_list) -> None:
     """Main entry point to get reports. Gathers user inputs and applies logic
     based on those inputs to get the correct report"""
@@ -833,6 +850,7 @@ def delete_report(report_file=REPORT_FILE_PATH) -> None:
 def plot_data() -> None:
     plots_list = []
     labels = []
+    plot_title = ""
 
     while True:
         data, selection_dict = get_stored_data()
@@ -845,6 +863,8 @@ def plot_data() -> None:
             if selection in selection_dict.keys():
                 labels.append(selection_dict[selection])
                 report_to_plot = data[selection_dict[selection]]
+                if plot_title == "":
+                    plot_title = selection_dict[selection].split("::")[1]
 
                 print("[green bold]Adding to list: [/]")
                 print_json(data=report_to_plot)
@@ -855,10 +875,12 @@ def plot_data() -> None:
 
     print("\nPlotting data...\n\n")
 
-    plot_type = selection_dict[selection]
-    plot_title = generate_plot_title()
+    y_label = report_types[plot_title]["ylabel"]
     plot_report_data(
-        *plots_list, data_labels=labels, data_type=plot_type, title=plot_title
+        *plots_list,
+        data_labels=labels,
+        title=plot_title,
+        label=y_label,
     )
 
 

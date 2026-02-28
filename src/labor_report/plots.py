@@ -41,7 +41,10 @@ def calculate_stand_dev(data_set: dict, mean: float | None = None) -> float:
 
 
 def plot_report_data(
-    *data_sets: dict, data_labels: list, data_type: str, title=""
+    *data_sets: dict,
+    data_labels: list,
+    title: str | None,
+    label: str | None,
 ) -> None:
     width = 0.75
     num_sets = len(data_sets)
@@ -54,20 +57,21 @@ def plot_report_data(
 
     for i, data_set in enumerate(data_sets):
         mean = _calculate_mean(data_set)
-        hrs = list(data_set.values())
+        scalar = list(data_set.values())
         offset = (i - (num_sets - 1) / 2) * width
 
-        rects = ax.bar(x + offset, hrs, width, label=data_labels[i])
+        rects = ax.bar(x + offset, scalar, width, label=data_labels[i])
         bar_color = rects.patches[0].get_facecolor()
 
         ax.axhline(
             mean, color=bar_color, linestyle="--", linewidth=1, label=f"Avg: {mean:.2f}"
         )
         ax.bar_label(rects, padding=3)
-        ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.10), ncol=2, frameon=False)
+        ax.legend(loc="lower center", bbox_to_anchor=(
+            0.5, 1.10), ncol=2, frameon=False)
 
     ax.set_xticks(x, categories, rotation=70)
-    ax.set_ylabel(data_type)
+    ax.set_ylabel(label)
     ax.set_title(title)
 
     plt.show()
