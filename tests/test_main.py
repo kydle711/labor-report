@@ -14,6 +14,11 @@ from labor_report.main import (
     URL,
     headers,
     sort_items_by_work_order,
+    paginate_parameters,
+    add_values,
+    parameterize_wo_list,
+    _divide_item_amounts_per_tech,
+    calculate_parts_per_labor_hour,
 )
 
 
@@ -170,3 +175,48 @@ class TestSortItemsByWorkOrder:
         assert result["123"][0]["SampleName"] == "TEST"
         assert len(result["345"]) == 2
         assert result["345"][0]["SampleName"] is None
+
+
+class TestPaginateParameters:
+    @pytest.fixture()
+    def params(self):
+        return {"skip": 0, "other": None}
+
+    def test_no_count_in_keys(self, params):
+        data = {"value": [{"item1": "something"}, {"item2", "something else"}]}
+        result, count = paginate_parameters(params, data)
+        assert result["skip"] == 0
+        assert count == 0
+
+    def test_count_in_keys(self, params):
+        data = {"count": 70, "value": [{"item1": "nothing"}]}
+        result, count = paginate_parameters(params, data)
+        assert result["skip"] == 70
+        assert count == 70
+
+
+class TestAddValues:
+    @pytest.fixture()
+    def data_list(self):
+        return [{"ID": 1}, {"ID": 2}, {"ID": 3}]
+
+    def test_no_value_in_keys(self, data_list):
+        response_data = {"ID": 4}
+        data_copy = data_list.copy()
+        data_copy.append(response_data.copy())
+        full_list = add_values(data_list, response_data)
+        assert full_list == data_copy
+
+    def test_value_in_keys(self, data_list):
+        response_data = {"count": 2, "value": [{"ID": 4}, {"ID", 5}]}
+        data_copy = data_list.copy()
+        data_copy.extend(response_data.copy()["value"])
+        full_list = add_values(data_list, response_data)
+        assert full_list == data_copy
+
+    def test_no_value_in_keys_list_of_dicts(self, data_list):
+        response_data = [{"ID": 4}, {"ID": 5}]
+        data_copy = data_list.copy()
+        data_copy.extend(response_data.copy())
+        full_list = add_values(data_list, response_data)
+        assert full_list == data_copy

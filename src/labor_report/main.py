@@ -12,6 +12,7 @@ from calendar import prmonth
 from datetime import date
 from json import JSONDecodeError
 from pathlib import Path
+from typing import Any
 
 import httpx
 from dotenv import load_dotenv
@@ -290,17 +291,21 @@ def sort_items_by_work_order(items: list) -> dict[str, list]:
 
 def paginate_parameters(params: dict, data: dict) -> tuple[dict, int]:
     count = 0
-    if "count" in data.keys() and data["count"] == 100:
-        params["skip"] += 100
-        count = 100
+    if "count" in data.keys():
+        count = data["count"]
+        params["skip"] += count
     return params, count
 
 
-def add_values(cached_data: list, response_data: dict) -> list:
-    if "value" in response_data.keys():
+def add_values(cached_data: list, response_data: Any) -> list:
+    if hasattr(response_data, "keys") and "value" in response_data.keys():
         cached_data.extend(response_data["value"])
     else:
-        cached_data.extend(response_data)
+        if len(response_data) == 1:
+            cached_data.append(response_data)
+        else:
+            for item in response_data:
+                cached_data.append(item)
     return cached_data
 
 
