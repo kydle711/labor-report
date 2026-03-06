@@ -28,8 +28,7 @@ def project_root(start: Path | None = None) -> Path:
     for p in [here, *here.parents]:
         if (p / "pyproject.toml").exists() or (p / ".git").exists():
             return p
-    raise RuntimeError(
-        "Could not locate project root (pyproject.toml or .git)")
+    raise RuntimeError("Could not locate project root (pyproject.toml or .git)")
 
 
 ROOT = project_root()
@@ -127,11 +126,10 @@ def initialize_api_key(key_path) -> str:
     api_key = os.getenv("METHOD_API_KEY")
 
     if api_key is None:
-        api_key = input(
-            "Please paste your API key and press enter('q' to exit): ")
+        api_key = input("Please paste your API key and press enter('q' to exit): ")
 
         if api_key == "q":
-            quit()
+            raise SystemExit()
 
         with open(key_path, "w") as api_file:
             key_variable = f"METHOD_API_KEY={api_key}"
@@ -142,8 +140,7 @@ def initialize_api_key(key_path) -> str:
 
 def get_technician_names(exclusions: list) -> list:
     with Progress() as progress:
-        progress_bar = progress.add_task(
-            "Checking technician names...", total=1)
+        progress_bar = progress.add_task("Checking technician names...", total=1)
         params = {"skip": 0, "top": 100, "select": "FullName"}
 
         response = httpx.get(
@@ -168,7 +165,6 @@ def get_technician_names(exclusions: list) -> list:
 
 
 def get_work_order_count(start: str, end: str, customer_filter: str) -> int:
-    total = 0
     params = {
         "apply": f"filter(ActualCompletedDate ge '{start}T00:00:00' and "
         f"ActualCompletedDate lt '{end}T00:00:00'{customer_filter})"
@@ -181,9 +177,12 @@ def get_work_order_count(start: str, end: str, customer_filter: str) -> int:
 
     if response.status_code == 200:
         data = response.json()
-        total += int(data["value"][0]["TotalWorkOrders"])
-        print(
-            f"[bold purple]Total Work Orders found:[/][bold orange] {total}[/]")
+        total = int(data["value"][0]["TotalWorkOrders"])
+        print(f"[bold purple]Total Work Orders found:[/][bold orange] {total}[/]")
+
+    else:
+        logger.error("Failed request on get_work_order_count... returned '0' for total")
+        total = 0
 
     return total
 
@@ -207,8 +206,7 @@ def generate_customer_filter(customers: tuple, exclude: bool) -> str:
             for customer in customers
         ]
 
-        customer_filter_string = f" and ({
-            join_param.join(customer_filter_list)})"
+        customer_filter_string = f" and ({join_param.join(customer_filter_list)})"
 
     return customer_filter_string
 
@@ -247,8 +245,7 @@ async def fetch_work_orders_by_range(
                     else:
                         attempts += 1
                         logger.error(
-                            f"Failed request! {response.status_code}{
-                                response.content}"
+                            f"Failed request! {response.status_code}{response.content}"
                         )
                     continue
 
@@ -281,7 +278,7 @@ async def fetch_work_orders_by_range(
 def sort_items_by_work_order(items: list) -> dict[str, list]:
     wo_items = {}
     for item in items:
-        if "ActivityNo" in item:
+        if "ActivityNo" in item and item["ActivityNo"]:
             wo_num = item["ActivityNo"]
             if wo_num in wo_items.keys():
                 wo_items[wo_num].append(item)
@@ -317,8 +314,7 @@ def parameterize_wo_list(wo_list: list) -> list:
 
     total = len(wo_list)
     slice_size = 70
-    split_list = [filter_list[i: i + slice_size]
-                  for i in range(0, total, slice_size)]
+    split_list = [filter_list[i : i + slice_size] for i in range(0, total, slice_size)]
     param_list = []
 
     for item in split_list:
@@ -342,8 +338,7 @@ async def fetch_items(
         filter_string = ""
 
     with Progress() as progress:
-        progress_bar = progress.add_task(
-            "Fetching job items...", total=len(param_list))
+        progress_bar = progress.add_task("Fetching job items...", total=len(param_list))
 
         for work_orders_parameter in param_list:
             params = {
@@ -370,8 +365,7 @@ async def fetch_items(
                         else:
                             attempts += 1
                             logger.debug(
-                                f"Failed request in get_items: {
-                                    response.status_code}:"
+                                f"Failed request in get_items: {response.status_code}:"
                                 f"{response.content}\n"
                                 f"Params: {params}"
                             )
@@ -388,16 +382,14 @@ async def fetch_items(
                 except Exception:
                     attempts += 1
                     logger.error(
-                        f"Error get_items: {traceback.format_exc()}\nParams: {
-                            params}"
+                        f"Error get_items: {traceback.format_exc()}\nParams: {params}"
                     )
 
             progress.update(progress_bar, advance=1)
 
     if attempts == 5:
         logger.error("Scan incomplete after 5 failed attempts")
-    print(
-        f"[bold purple]Total job items:[/] [bold orange] {len(data_list)}[/]")
+    print(f"[bold purple]Total job items:[/] [bold orange] {len(data_list)}[/]")
     return data_list
 
 
@@ -412,8 +404,7 @@ def _divide_item_amounts_per_tech(tech_names: list, items: list) -> dict:
     total_amount = 0
 
     logger.debug(
-        f"divide_item_amounts_per_tech - ITEMS: {
-            items}\nTECH NAMES: {tech_names}"
+        f"divide_item_amounts_per_tech - ITEMS: {items}\nTECH NAMES: {tech_names}"
     )
 
     # track total labor hours per tech
@@ -450,8 +441,7 @@ def _divide_item_amounts_per_tech(tech_names: list, items: list) -> dict:
                 # Divide each tech's hours by total hours for a percentage
                 # Then calculate the parts per labor hour for this work order
                 proportion = labor_dict[name] / total_hours
-                pplh_per_wo_dict[name] = total_amount * \
-                    proportion / labor_dict[name]
+                pplh_per_wo_dict[name] = total_amount * proportion / labor_dict[name]
 
     return pplh_per_wo_dict
 
@@ -479,8 +469,7 @@ def calculate_parts_per_labor_hour(tech_names: list, job_items: list[dict]) -> d
 
             except Exception:
                 logger.error(
-                    f"calculate_parts_per_labor_hour error: {
-                        traceback.format_exc()}"
+                    f"calculate_parts_per_labor_hour error: {traceback.format_exc()}"
                 )
 
             progress.update(progress_bar, advance=1)
@@ -503,8 +492,7 @@ def calculate_parts_per_labor_hour(tech_names: list, job_items: list[dict]) -> d
 def tally_labor_items(tech_names: list, items: list, item_filter: str) -> dict:
     labor_dict = {name: 0 for name in tech_names}
     with Progress() as progress:
-        progress_bar = progress.add_task(
-            f"Counting {item_filter}...", total=len(items))
+        progress_bar = progress.add_task(f"Counting {item_filter}...", total=len(items))
         logger.debug(f"Number of labor items: {len(items)}\n")
         for job_item in items:
             logger.debug(f"{job_item}\n")
@@ -513,8 +501,7 @@ def tally_labor_items(tech_names: list, items: list, item_filter: str) -> dict:
 
                 if item_filter in item_name:
                     tech_name_key = item_name.removeprefix(item_filter).strip()
-                    logger.debug(f"\tItem: {item_name}\nTech: {
-                                 tech_name_key}\n")
+                    logger.debug(f"\tItem: {item_name}\nTech: {tech_name_key}\n")
 
                     if tech_name_key in tech_names:
                         labor_dict[tech_name_key] += job_item["Qty"]
@@ -536,8 +523,7 @@ def _divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> 
     total = 0
 
     logger.debug(
-        f"divide_brake_cleaners_per_tech - ITEMS: {
-            items}\nTECH NAMES: {names}\n"
+        f"divide_brake_cleaners_per_tech - ITEMS: {items}\nTECH NAMES: {names}\n"
     )
 
     labor_dict = {name: 0 for name in names}
@@ -565,8 +551,7 @@ def _divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> 
     if total > 0:
         for name in labor_dict.keys():
             if labor_dict[name] > 0:
-                brake_cleaner_dict[name] = total * \
-                    (labor_dict[name] / total_hours)
+                brake_cleaner_dict[name] = total * (labor_dict[name] / total_hours)
 
     return brake_cleaner_dict
 
@@ -574,6 +559,10 @@ def _divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> 
 def count_brake_cleaners(
     tech_names: list, job_items: list[dict], item_key: str
 ) -> dict:
+    """See calculate_parts_per_labor_hour docstring for more info on how this
+    func calculates brake cleaners per tech. It follows a similar format
+    except for calculating the mean per labor hour."""
+
     brake_cleaner_dict = {name: 0 for name in tech_names}
     sorted_list = sort_items_by_work_order(job_items)
     with Progress() as progress:
@@ -591,8 +580,7 @@ def count_brake_cleaners(
                     brake_cleaner_dict[tech] += brake_cleaner_per_work_order_dict[tech]
 
             except Exception:
-                logger.error(f"count_brake_cleaners error: {
-                             traceback.format_exc()}")
+                logger.error(f"count_brake_cleaners error: {traceback.format_exc()}")
 
             progress.update(progress_bar, advance=1)
 
@@ -709,8 +697,7 @@ def get_report(remove_names=exclude_list) -> None:
     # Get user input for report type
     report_title = get_report_type(report_types)
 
-    report_params = resolve_report_type(
-        key=report_title, reports_dict=report_types)
+    report_params = resolve_report_type(key=report_title, reports_dict=report_types)
 
     customers = report_params[0]
     item = report_params[1]
@@ -736,17 +723,14 @@ def get_report(remove_names=exclude_list) -> None:
     if PPLH_flag:
         job_items = asyncio.run(main_async_fetch(fetch_items, work_orders))
 
-        report_dict = calculate_parts_per_labor_hour(
-            field_tech_list, job_items)
+        report_dict = calculate_parts_per_labor_hour(field_tech_list, job_items)
 
     elif item == "brake cleaner":
-        job_items = asyncio.run(main_async_fetch(
-            fetch_items, work_orders, item))
+        job_items = asyncio.run(main_async_fetch(fetch_items, work_orders, item))
         report_dict = count_brake_cleaners(field_tech_list, job_items, item)
 
     else:
-        job_items = asyncio.run(main_async_fetch(
-            fetch_items, work_orders, item))
+        job_items = asyncio.run(main_async_fetch(fetch_items, work_orders, item))
         report_dict = tally_labor_items(field_tech_list, job_items, item)
 
     report_name = create_report_name(start_date, end_date, report_title)
