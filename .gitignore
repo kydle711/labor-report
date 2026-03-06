@@ -6,3 +6,4 @@ __*
 src/labor_report.egg-info/PKG-INFO
 pyrightconfig.json
 data/
+graphs/
