@@ -277,6 +277,11 @@ async def fetch_work_orders_by_range(
 
 
 def sort_items_by_work_order(items: list) -> dict[str, list]:
+    """Will return a dict with str<Work Order num> as key
+    and a list as the value. The list will contain the dict
+    of each item for that work order. Items contain the following
+    keys: ActivityNo, Item, ItemDescription, Qty, Amount"""
+
     wo_items = {}
     for item in items:
         if "ActivityNo" in item and item["ActivityNo"]:
@@ -398,18 +403,22 @@ async def fetch_items(
     return data_list
 
 
-def _divide_item_amounts_per_tech(tech_names: list, items: list) -> dict:
+def _derive_pplh_per_work_order(tech_names: list, items: list[dict]) -> dict:
     """Helps calculate parts per labor hour for techs. Given work order 12345,
     if tech A has 5.0 hrs of labor, and tech B has 10.0 hrs of labor, tech B
     will receive credit for 2/3 of the value of non-labor items, while tech A
     will receive credit for 1/3. The full parts per labor hour is calculated
     in this function, and then the mean of all work hours will be calculated
-    in the calling function."""
+    in the calling function.
+
+    Each item is a dict containing the following keys:
+        ActivityNo, Item, ItemDescription, Qty, Amount"""
 
     total_amount = 0
+    total_hours = 0
 
     logger.debug(
-        f"divide_item_amounts_per_tech - ITEMS: {items}\nTECH NAMES: {tech_names}"
+        f"derive_pplh_per_work_order- ITEMS: {items}\nTECH NAMES: {tech_names}"
     )
 
     # track total labor hours per tech
@@ -425,6 +434,7 @@ def _divide_item_amounts_per_tech(tech_names: list, items: list) -> dict:
         # If 'labor:' in item name, extract tech name, then add
         # tech and hrs to dict
         if tag in item_name:
+            total_hours += item["Qty"]
             tech_name = item_name.removeprefix(tag).strip()
 
             if tech_name in labor_dict:
@@ -432,10 +442,7 @@ def _divide_item_amounts_per_tech(tech_names: list, items: list) -> dict:
 
         # If not a labor item or service call fee, add amount to total for WO
         elif "Service Call" not in item_name:
-            if item["Amount"] > 0:
-                total_amount += item["Amount"]
-
-    total_hours = sum(labor_dict.values())
+            total_amount += item["Amount"]
 
     pplh_per_wo_dict = {name: 0.0 for name in labor_dict.keys()}
 
@@ -446,7 +453,7 @@ def _divide_item_amounts_per_tech(tech_names: list, items: list) -> dict:
                 # Divide each tech's hours by total hours for a percentage
                 # Then calculate the parts per labor hour for this work order
                 proportion = labor_dict[name] / total_hours
-                pplh_per_wo_dict[name] = total_amount * proportion / labor_dict[name]
+                pplh_per_wo_dict[name] = (total_amount * proportion) / labor_dict[name]
 
     return pplh_per_wo_dict
 
@@ -463,7 +470,7 @@ def calculate_parts_per_labor_hour(tech_names: list, job_items: list[dict]) -> d
 
         for work_order in sorted_items.keys():
             try:
-                pplh_per_work_order_dict = _divide_item_amounts_per_tech(
+                pplh_per_work_order_dict = _derive_pplh_per_work_order(
                     tech_names, sorted_items[work_order]
                 )
 

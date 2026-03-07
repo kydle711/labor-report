@@ -1,6 +1,4 @@
-import os
 import pytest
-import json
 import httpx
 import respx
 
@@ -12,12 +10,11 @@ from labor_report.main import (
     get_technician_names,
     get_work_order_count,
     URL,
-    headers,
     sort_items_by_work_order,
     paginate_parameters,
     add_values,
     parameterize_wo_list,
-    _divide_item_amounts_per_tech,
+    _derive_pplh_per_work_order,
     calculate_parts_per_labor_hour,
 )
 
@@ -220,3 +217,98 @@ class TestAddValues:
         data_copy.extend(response_data.copy())
         full_list = add_values(data_list, response_data)
         assert full_list == data_copy
+
+
+class TestParameterizeWoList:
+    def test_split_params(self):
+        work_orders = [num for num in range(100)]
+        param_list = parameterize_wo_list(work_orders)
+
+        # Should be a list with two params, the first having 70 work order numbers
+        assert len(param_list) == 2
+        assert param_list[0].count(" or ") == 69
+        assert param_list[1].count(" or ") == 29
+
+
+class TestDerivePPLHPerWorkOrder:
+    """Each item is a dict containing the following keys:
+    ActivityNo, Item, ItemDescription, Qty, Amount"""
+
+    @pytest.fixture()
+    def somebody(self):
+        return ["Somebody"]
+
+    @pytest.fixture()
+    def multiple_names(self):
+        return ["Somebody", "Someone", "Anyone"]
+
+    def test_extract_tech_name(self, somebody):
+        items = [
+            {"Item": "labor:Somebody", "Qty": 1},
+            {"Item": "ExpensivePart", "Amount": 100},
+        ]
+        result_dict = _derive_pplh_per_work_order(somebody, items)
+        assert result_dict["Somebody"] == 100
+
+    def test_divide_formula(self, somebody):
+        items = [
+            {"Item": "labor:Somebody", "Qty": 2},
+            {"Item": "labor:Nobody", "Qty": 1},
+            {"Item": "expensivePart", "Amount": 100},
+        ]
+        result_dict = _derive_pplh_per_work_order(somebody, items)
+        assert result_dict["Somebody"] == pytest.approx(33.33, abs=0.01)
+        assert "Nobody" not in result_dict.keys()
+
+    def test_filter_service_calls(self, somebody):
+        items = [
+            {"Item": "Service Call:Service Call: Somebody", "Amount": 100},
+            {"Item": "labor:Somebody", "Qty": 1},
+        ]
+        result_dict = _derive_pplh_per_work_order(somebody, items)
+        assert result_dict["Somebody"] == 0
+
+    def test_zero_total_hrs(self, somebody):
+        items = [{"Item": "ExpensivePart", "Amount": 100}]
+        result_dict = _derive_pplh_per_work_order(somebody, items)
+        assert result_dict["Somebody"] == 0
+
+    def test_invalid_names(self, multiple_names):
+        items = [
+            {"Item": "labor:Nobody", "Qty": 2},
+            {"Item": "ExpensivePart", "Amount": 100},
+        ]
+        result_dict = _derive_pplh_per_work_order(multiple_names, items)
+        for name in multiple_names:
+            assert name in result_dict.keys()
+        assert "Nobody" not in result_dict.keys()
+        assert sum(result_dict.values()) == 0
+
+
+class TestCalculatePartsPerLaborHour:
+    @pytest.fixture()
+    def work_order_items(self):
+        return [
+            {"ActivityNo": 1, "Item": "labor:Somebody", "Qty": 1},
+            {"ActivityNo": 1, "Item": "labor:Anybody", "Qty": 2},
+            {"ActivityNo": 1, "Item": "ExpensivePart", "Amount": 900},
+            {"ActivityNo": 2, "Item": "labor:Somebody", "Qty": 2},
+            {"ActivityNo": 2, "Item": "CheapPart", "Qty": 50, "Amount": 1400},
+            {
+                "ActivityNo": 2,
+                "Item": "Service Call:Service Call: Somebody",
+                "Amount": 140,
+            },
+        ]
+
+    def test_calculate_pplh(self, work_order_items):
+        names = ["Somebody", "Anybody"]
+        pplh_dict = calculate_parts_per_labor_hour(names, work_order_items)
+        for name in pplh_dict.keys():
+            assert name in names
+        assert pplh_dict["Somebody"] == pytest.approx(
+            500.0,
+        )
+        assert pplh_dict["Anybody"] == pytest.approx(
+            300.0,
+        )
