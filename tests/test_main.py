@@ -16,6 +16,8 @@ from labor_report.main import (
     parameterize_wo_list,
     _derive_pplh_per_work_order,
     calculate_parts_per_labor_hour,
+    count_brake_cleaners,
+    _divide_brake_cleaners_per_work_order,
 )
 
 
@@ -312,3 +314,98 @@ class TestCalculatePartsPerLaborHour:
         assert pplh_dict["Anybody"] == pytest.approx(
             300.0,
         )
+
+
+class TestDivideBrakeCleanersPerWorkOrder:
+    @pytest.fixture()
+    def items_list(self):
+        return [
+            {"Item": "labor:Somebody", "Qty": 2},
+            {"Item": "labor:Somebody", "Qty": 2},
+            {"Item": "labor:Anybody", "Qty": 6},
+            {"Item": "labor:Nobody", "Qty": 10},
+            {"Item": "part number", "ItemDescription": "Brake cleaner", "Qty": 10},
+            {"Item": "different number", "ItemDescription": "Brake cleaner", "Qty": 10},
+        ]
+
+    @pytest.fixture()
+    def names_list(self):
+        return ["Somebody", "Anybody"]
+
+    def test_divide_formula(self, names_list, items_list):
+        key = "brake cleaner"
+        divided_dict = _divide_brake_cleaners_per_work_order(
+            items_list, names_list, key
+        )
+        assert "Nobody" not in divided_dict.keys()
+        for name in names_list:
+            assert name in divided_dict.keys()
+        assert sum(divided_dict.values()) == pytest.approx(10.0, 0.1)
+        assert divided_dict["Somebody"] == pytest.approx(4.0, 0.1)
+
+
+class TestCountBrakeCleaners:
+    @pytest.fixture()
+    def job_items(self):
+        return [
+            {
+                "ActivityNo": 1,
+                "Item": "labor:Somebody",
+                "ItemDescription": "",
+                "Qty": 1,
+            },
+            {
+                "ActivityNo": 1,
+                "Item": "labor:Anybody",
+                "ItemDescription": "",
+                "Qty": 2,
+            },
+            {
+                "ActivityNo": 1,
+                "Item": "sy4620",
+                "ItemDescription": "Brake cleaner",
+                "Qty": 9,
+            },
+            {
+                "ActivityNo": 2,
+                "Item": "labor:Somebody",
+                "ItemDescription": "",
+                "Qty": 2,
+            },
+            {
+                "ActivityNo": 2,
+                "Item": "CheapPart",
+                "ItemDescription": "",
+                "Qty": 50,
+                "Amount": 1400,
+            },
+            {
+                "ActivityNo": 2,
+                "Item": "Service Call:Service Call: Somebody",
+                "ItemDescription": "",
+                "Amount": 140,
+            },
+            {
+                "ActivityNo": 2,
+                "Item": "sy4620",
+                "ItemDescription": "Brake cleaner",
+                "Qty": 5,
+            },
+            {
+                "ActivityNo": 2,
+                "Item": "labor:Nonexistent",
+                "ItemDescription": "",
+                "Qty": 0,
+            },
+        ]
+
+    @pytest.fixture()
+    def names(self):
+        return ["Somebody", "Anybody", "Nobody"]
+
+    def test_count_brake_cleaners(self, names, job_items):
+        result = count_brake_cleaners(names, job_items, "brake cleaner")
+        assert result["Nobody"] == 0
+        assert result["Somebody"] == 8
+        assert result["Anybody"] == 6
+        assert "Nonexistent" not in result.keys()

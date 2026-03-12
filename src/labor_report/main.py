@@ -531,15 +531,18 @@ def tally_labor_items(tech_names: list, items: list, item_filter: str) -> dict:
     return labor_dict
 
 
-def _divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> dict:
+def _divide_brake_cleaners_per_work_order(
+    items: list, names: list, item_key: str
+) -> dict:
     total = 0
 
     logger.debug(
-        f"divide_brake_cleaners_per_tech - ITEMS: {items}\nTECH NAMES: {names}\n"
+        f"divide_brake_cleaners_per_work_order- ITEMS: {items}\nTECH NAMES: {names}\n"
     )
 
     labor_dict = {name: 0 for name in names}
     tag = "labor:"
+    total_hours = 0
 
     for item in items:
         item_name = item["Item"]
@@ -548,6 +551,7 @@ def _divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> 
             continue
 
         if tag in item_name:
+            total_hours += item["Qty"]
             tech_name = item_name.removeprefix(tag).strip()
 
             if tech_name in labor_dict:
@@ -555,8 +559,6 @@ def _divide_brake_cleaners_per_tech(items: list, names: list, item_key: str) -> 
 
         elif item_key == item["ItemDescription"].lower():
             total += item["Qty"]
-
-    total_hours = sum(labor_dict.values())
 
     brake_cleaner_dict = {name: 0.0 for name in names}
 
@@ -584,8 +586,10 @@ def count_brake_cleaners(
 
         for work_order in sorted_list.keys():
             try:
-                brake_cleaner_per_work_order_dict = _divide_brake_cleaners_per_tech(
-                    sorted_list[work_order], tech_names, item_key
+                brake_cleaner_per_work_order_dict = (
+                    _divide_brake_cleaners_per_work_order(
+                        sorted_list[work_order], tech_names, item_key
+                    )
                 )
 
                 for tech in tech_names:
